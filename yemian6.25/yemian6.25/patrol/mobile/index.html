@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>云山智巡 - 移动巡护端</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="header">
+  <h1>云山智巡</h1>
+  <div class="sub" id="subTitle">移动端 - 实时轨迹采集</div>
+</div>
+
+<!-- 登录面板 -->
+<div class="panel" id="loginPanel">
+  <h3>🔑 巡护员登录</h3>
+  <div class="form-group">
+    <label>姓名</label>
+    <select id="selUser">
+      <option value="">-- 选择巡护员 --</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label>密码</label>
+    <input type="password" id="loginPassword" placeholder="默认密码 123456">
+  </div>
+  <div id="loginError" style="color:var(--accent-red);font-size:12px;margin-bottom:8px;display:none;"></div>
+  <button class="btn btn-primary" onclick="app.login()">登录</button>
+</div>
+
+<!-- 主面板 -->
+<div id="mainPanel" style="display:none;">
+  <!-- 状态栏 -->
+  <div class="panel">
+    <div class="status-bar">
+      <span>👤 <span id="displayUserId">-</span></span>
+      <span>📋 <span id="displayPatrolId">-</span></span>
+      <span id="connStatus" class="chip online">● 在线</span>
+    </div>
+    <div id="gpsStatus" class="waiting">⏳ 等待GPS定位...</div>
+    <div id="taskSelectRow" style="margin-top:8px;">
+      <div class="form-group"><label>选择巡护任务</label><select id="selPatrol"><option value="">-- 先登录加载任务 --</option></select></div>
+      <button class="btn btn-primary" id="btnConfirmTask" onclick="app.confirmTask()">确认任务</button>
+    </div>
+    <div id="patrolStatus" class="chip">待开始</div>
+    <button class="btn btn-primary" id="btnStart" style="display:none;margin-top:10px;" onclick="app.startPatrol()">开始巡护</button>
+    <button class="btn btn-danger" id="btnStop" style="display:none;margin-top:10px;" onclick="app.stopPatrol()">结束巡护</button>
+  </div>
+
+  <!-- 统计面板 -->
+  <div class="panel">
+    <h3>📊 巡护统计</h3>
+    <div class="info-grid">
+      <div>原始信号: <span class="val" id="gpsRaw">0</span></div>
+      <div>有效点位: <span class="val" id="pointCount">0</span></div>
+      <div>总距离: <span class="val" id="totalDist">0</span> m</div>
+      <div>巡护时长: <span class="val" id="duration">00:00</span></div>
+      <div>待同步: <span class="val" id="unsyncedCount">0</span></div>
+      <div>最新精度: <span class="val" id="lastAcc">-</span></div>
+      <div>速度: <span class="val" id="lastSpeed">-</span></div>
+      <div>纬度: <span class="val" id="lastLat">-</span></div>
+      <div style="grid-column:1/-1">经度: <span class="val" id="lastLng">-</span></div>
+    </div>
+  </div>
+
+  <!-- 地图预览 -->
+  <div class="panel">
+    <h3>🗺️ 我的轨迹 <span id="sendStatus" style="font-size:11px;font-weight:400;margin-left:auto;"></span></h3>
+    <div id="miniMap"></div>
+  </div>
+
+  <!-- 日志 -->
+  <div class="panel">
+    <h3>📝 巡护日志</h3>
+    <div class="log-box" id="log"></div>
+  </div>
+</div>
+
+<script>
+// 动态加载 Leaflet（双CDN容错）
+(function loadLeaflet(cb) {
+  var urls = ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', 'https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.js'];
+  function tryLoad(i) {
+    if (i >= urls.length) { cb && cb(); return; }
+    var s = document.createElement('script');
+    s.src = urls[i];
+    s.onload = function() { cb && cb(); };
+    s.onerror = function() { s.remove(); tryLoad(i + 1); };
+    document.head.appendChild(s);
+  }
+  tryLoad(0);
+})(function() {
+  var link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  link.onerror = function() {
+    var l2 = document.createElement('link');
+    l2.rel = 'stylesheet';
+    l2.href = 'https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.css';
+    document.head.appendChild(l2);
+  };
+  document.head.appendChild(link);
+
+  // 加载业务JS
+  var scripts = ['js/utils.js', 'js/gps-collector.js', 'js/ws-client.js', 'js/offline-storage.js', 'js/app.js'];
+  (function loadScripts(idx) {
+    if (idx >= scripts.length) return;
+    var s = document.createElement('script');
+    s.src = scripts[idx];
+    s.onload = function() { loadScripts(idx + 1); };
+    document.body.appendChild(s);
+  })(0);
+});
+</script>
+
+</body>
+</html>

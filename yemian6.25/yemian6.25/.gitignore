@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+
+# 大文件 (>50MB)
+*.pt
+*.tif
+*.tiff
+*.db
+
+# 上传/输出
+backend/uploads/*
+backend/outputs/*
+!backend/uploads/.gitkeep
+!backend/outputs/.gitkeep
+
+# 环境配置
+.env
+*.log
+/tmp/
+
+# IDE
+.vscode/
+.idea/
