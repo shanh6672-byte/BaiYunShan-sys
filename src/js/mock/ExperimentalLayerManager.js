@@ -435,33 +435,6 @@
             tryAdd();
         })();
 
-        // ==================== 图例 ====================
-        var ct = document.querySelector('.map-full-container');
-        if (ct && !document.getElementById('experimental-legend')) {
-            var leg = document.createElement('div'); leg.id = 'experimental-legend';
-            leg.style.cssText = 'position:fixed;top:10px;left:302px;z-index:800;background:rgba(10,22,40,0.92);border:1px solid rgba(79,195,247,0.3);border-radius:8px;padding:10px 14px;font-size:12px;color:#c8d6e5;backdrop-filter:blur(4px);';
-            var tt = document.createElement('div'); tt.textContent = '实验数据(SHP校验)'; tt.style.cssText = 'font-weight:600;color:#4fc3f7;margin-bottom:6px;font-size:13px;'; leg.appendChild(tt);
-            [
-                { c: '#00e676', s: 'c', l: '护林员18' },
-                { c: '#448aff', s: 'c', l: '无人机6' },
-                { c: '#ff3d3d', s: 'c', l: '火情3' },
-                { c: '#ff9800', s: 'c', l: '疫情7' },
-                { c: '#4caf50', s: 'p', l: '林业小班8' },
-                { c: '#2196f3', s: 'l', l: '巡护轨迹5' },
-                { c: '#00ff88', s: 'd', l: '林场边界' }
-            ].forEach(function (it) {
-                var r = document.createElement('div'); r.style.cssText = 'display:flex;align-items:center;gap:8px;margin:3px 0;';
-                var d = document.createElement('div'); d.style.flexShrink = '0';
-                if (it.s === 't') d.style.cssText = 'width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:12px solid ' + it.c + ';';
-                else if (it.s === 'd') d.style.cssText = 'width:14px;height:2px;background:' + it.c + ';';
-                else if (it.s === 'p') d.style.cssText = 'width:12px;height:12px;background:' + it.c + ';border:2px solid ' + it.c + ';opacity:0.5;';
-                else if (it.s === 'l') d.style.cssText = 'width:14px;height:3px;background:' + it.c + ';border-radius:1px;';
-                else d.style.cssText = 'width:10px;height:10px;background:' + it.c + ';border-radius:50%;';
-                r.appendChild(d); var s = document.createElement('span'); s.textContent = it.l; r.appendChild(s); leg.appendChild(r);
-            });
-            ct.appendChild(leg);
-        }
-
         window.__experimentalBusinessLayers__ = businessLayers;
     }
 })();

@@ -67,12 +67,6 @@
 <!-- ==================== 公共地图容器 ==================== -->
 <div class="map-full-container fixed-map" id="publicMapContainer">
     <div id="dashMap"></div>
-    <div class="map-stats">
-        <div class="map-stat-chip"><div class="chip-dot" style="background:#00e676;"></div><span>护林员 18</span></div>
-        <div class="map-stat-chip"><div class="chip-dot" style="background:#448aff;"></div><span>无人机 6</span></div>
-        <div class="map-stat-chip"><div class="chip-dot" style="background:#ff3d3d;"></div><span>火情 3</span></div>
-        <div class="map-stat-chip"><div class="chip-dot" style="background:#ff9800;"></div><span>虫害 7</span></div>
-    </div>
 </div>
 
 <!-- ==================== 地图控件（独立于地图容器，避免层叠上下文限制） ==================== -->
@@ -112,11 +106,11 @@
                     <input type="range" min="0" max="100" value="60" data-layer="subCompartments" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
-                    <label class="layer-label"><input type="checkbox" checked data-layer="rangers"/> 护林员位置</label>
+                    <label class="layer-label"><input type="checkbox" data-layer="rangers"/> 护林员位置</label>
                     <input type="range" min="0" max="100" value="100" data-layer="rangers" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
-                    <label class="layer-label"><input type="checkbox" checked data-layer="drones"/> 无人机位置</label>
+                    <label class="layer-label"><input type="checkbox" data-layer="drones"/> 无人机位置</label>
                     <input type="range" min="0" max="100" value="100" data-layer="drones" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
@@ -124,7 +118,7 @@
                     <input type="range" min="0" max="100" value="100" data-layer="fires" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
-                    <label class="layer-label"><input type="checkbox" data-layer="diseases"/> 虫害点</label>
+                    <label class="layer-label"><input type="checkbox" checked data-layer="diseases"/> 虫害点</label>
                     <input type="range" min="0" max="100" value="100" data-layer="diseases" class="layer-opacity" title="透明度"/>
                 </div>
             </div>
@@ -442,5 +436,14 @@
 <script src="track-playback.js?v=20260702"></script>
 <script src="src/js/map/providers/geoserver-provider.js?v=20260702"></script>
 <script src="app.js?v=20260702"></script>
+<script src="patrol-module.js?v=20260705"></script>
+<script>
+// 巡护模块初始化（延迟加载，页面激活时自动启动）
+window._patrolReady = false;
+(function initPatrol() {
+    if (typeof Patrol === 'undefined') { setTimeout(initPatrol, 300); return; }
+    Patrol.init().then(function() { window._patrolReady = true; console.log('[Patrol] ready'); });
+})();
+</script>
 </body>
 </html>

@@ -1669,7 +1669,7 @@ function initDisasterPage() {
     </div>`;
 
     setTimeout(function() {
-        dashMap && dashMap.invalidateSize();
+        if (typeof MapFacade !== 'undefined') { var dm = MapFacade.getMap('dashMap'); if (dm) dm.invalidateSize(); }
 
         // 自动同步GeoServer
         ApiService.syncGeoserver().catch(function(){});
@@ -1963,7 +1963,7 @@ async function refreshFireAnalysisList() {
             html += '<span class=\"fp-time\">' + time + '</span>';
             html += '<button class=\"btn btn-sm btn-outline\" style=\"font-size:10px;padding:1px 6px;\" data-fid=\"' + f.id + '\" onclick=\"viewFirePoint(this.dataset.fid)\">查看</button></div>';
         });
-        fpBar.innerHTML = html;
+        fpBar.innerHTML = html || '<div style=\"color:#8ba4bc;font-size:12px;padding:10px;text-align:center;\">暂无火情数据</div>';
         fpBar.style.display = 'flex';
     } catch(e) { console.warn('refreshFireAnalysisList:', e.message); }
 }
@@ -2387,8 +2387,8 @@ const DisasterPanel = {
         if (!container) return;
         container.innerHTML = '<div style="color:#8ba4bc;font-size:12px;padding:20px;text-align:center;">加载中...</div>';
         try {
-            // 确保数据已加载
-            if (typeof GeoServerLayers !== 'undefined' && !GeoServerLayers._firePoints) {
+            // 强制从 API 重新加载最新数据
+            if (typeof GeoServerLayers !== 'undefined') {
                 await GeoServerLayers._loadFirePoints();
             }
             const points = (typeof GeoServerLayers !== 'undefined' && GeoServerLayers._firePoints) || {};
@@ -2411,7 +2411,8 @@ const DisasterPanel = {
         if (!container) return;
         container.innerHTML = '<div style="color:#8ba4bc;font-size:12px;padding:20px;text-align:center;">加载中...</div>';
         try {
-            if (typeof GeoServerLayers !== 'undefined' && !GeoServerLayers._pestPoints) {
+            // 强制从 API 重新加载最新数据
+            if (typeof GeoServerLayers !== 'undefined') {
                 await GeoServerLayers._loadPestPoints();
             }
             const list = (typeof GeoServerLayers !== 'undefined' && GeoServerLayers._pestPoints) || [];

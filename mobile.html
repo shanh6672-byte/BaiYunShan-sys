@@ -16,15 +16,18 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;background:#0a1628;c
 .tab-bar a.active{color:#00d5ff;border-bottom-color:#00d5ff}
 .page{flex:1;overflow-y:auto;display:none}
 .page.active{display:block}
-#map{height:55vh;width:100%}
-.task-card{background:rgba(10,22,40,0.9);margin:8px;padding:12px;border-radius:8px;border:1px solid rgba(0,213,255,0.1)}
+#map{height:50vh;width:100%}
+.route-info-bar{background:rgba(10,22,40,0.95);padding:8px 14px;border-bottom:1px solid rgba(0,213,255,0.1);display:none}
+.route-info-bar .route-title{font-size:12px;color:#fdd835;margin-bottom:2px}
+.route-info-bar .route-detail{font-size:10px;color:#90a4ae;display:flex;justify-content:space-between}
+.task-card{background:rgba(10,22,40,0.9);margin:8px;padding:12px;border-radius:8px;border:1px solid rgba(0,213,255,0.1);cursor:pointer}
+.task-card.active-task{border-color:#fdd835}
 .task-card .tnum{font-size:11px;color:#78909c}
 .task-card .tname{font-size:15px;color:#fff;margin:4px 0}
 .task-card .tmeta{font-size:11px;color:#90a4ae}
-.task-card .tstatus{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;margin-top:6px}
-.status-pending{background:rgba(255,152,0,0.2);color:#ff9800}
-.status-running{background:rgba(0,230,118,0.2);color:#00e676}
-.status-done{background:rgba(0,213,255,0.2);color:#00d5ff}
+.status-pending{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;margin-top:6px;background:rgba(255,152,0,0.2);color:#ff9800}
+.status-active{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;margin-top:6px;background:rgba(0,230,118,0.2);color:#00e676}
+.status-completed{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;margin-top:6px;background:rgba(0,213,255,0.2);color:#00d5ff}
 .info-bar{background:rgba(10,22,40,0.95);padding:10px 14px;border-top:1px solid rgba(0,213,255,0.15)}
 .info-bar .stat-row{display:flex;justify-content:space-around;text-align:center;margin-bottom:8px}
 .info-bar .stat-val{font-size:18px;font-weight:700;color:#00d5ff}
@@ -40,7 +43,9 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;background:#0a1628;c
 .log-list li{background:rgba(10,22,40,0.9);margin:4px 8px;padding:10px;border-radius:6px;border-left:3px solid #00d5ff;font-size:12px}
 .log-list .log-time{color:#78909c;font-size:10px}
 .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,213,255,0.9);color:#000;padding:10px 24px;border-radius:8px;font-size:13px;z-index:9999;display:none}
-.photo-preview{width:80px;height:80px;border-radius:8px;object-fit:cover;margin:4px;border:1px solid rgba(0,213,255,0.2)}
+.legends{display:flex;gap:12px;padding:4px 14px;font-size:10px;color:#90a4ae;background:rgba(10,22,40,0.95)}
+.legends span{display:flex;align-items:center;gap:4px}
+.legends .dot{width:8px;height:8px;border-radius:2px}
 </style>
 </head>
 <body>
@@ -51,16 +56,25 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;background:#0a1628;c
 <div class="tab-bar">
     <a class="active" data-tab="tab-tasks" onclick="switchTab('tab-tasks')">📋 我的任务</a>
     <a data-tab="tab-map" onclick="switchTab('tab-map')">🗺 地图</a>
-    <a data-tab="tab-report" onclick="switchTab('tab-report')">🚨 上报</a>
     <a data-tab="tab-log" onclick="switchTab('tab-log')">📝 日志</a>
 </div>
 
-<!-- 任务列表 -->
 <div class="page active" id="tab-tasks"><div id="taskList"></div></div>
 
-<!-- 地图 + 控制 -->
 <div class="page" id="tab-map">
+    <div class="legends">
+        <span><span class="dot" style="background:#fdd835;"></span> 规划路线</span>
+        <span><span class="dot" style="background:#00e676;"></span> 实际轨迹</span>
+        <span><span class="dot" style="background:#ff5252;"></span> 当前位置</span>
+    </div>
     <div id="map"></div>
+    <div class="route-info-bar" id="routeInfoBar">
+        <div class="route-title" id="routeTitle">--</div>
+        <div class="route-detail">
+            <span id="routeWpCount">0个航点</span>
+            <span id="routeDist">0.0km</span>
+        </div>
+    </div>
     <div class="info-bar" id="infoBar">
         <div class="stat-row">
             <div><div class="stat-val" id="distVal">--</div><div class="stat-label">里程(km)</div></div>
@@ -70,434 +84,905 @@ body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;background:#0a1628;c
         </div>
     </div>
     <div class="btn-row">
-        <button class="btn btn-accept" id="btnAccept" onclick="acceptTask()">📋 接受</button>
+        <button class="btn btn-accept" id="btnAccept" onclick="acceptTask()" disabled>📋 接受</button>
         <button class="btn btn-start" id="btnStart" onclick="startPatrol()" disabled>▶ 开始巡护</button>
         <button class="btn btn-finish" id="btnFinish" onclick="finishPatrol()" disabled>✓ 完成</button>
         <button class="btn btn-upload" id="btnPhoto" onclick="takePhoto()" disabled>📷</button>
     </div>
 </div>
 
-<!-- 巡护日志 -->
 <div class="page" id="tab-log">
     <ul class="log-list" id="logList"><li>暂无巡护日志</li></ul>
-</div>
-
-<!-- 火情/疫情上报 -->
-<div class="page" id="tab-report">
-    <div style="padding:12px">
-        <div style="background:rgba(10,22,40,0.9);border-radius:8px;padding:14px;border:1px solid rgba(255,61,61,0.2)">
-            <h2 style="color:#ff3d3d;font-size:16px;margin-bottom:12px">🚨 灾害上报</h2>
-
-            <div style="margin-bottom:10px">
-                <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">灾害类型</label>
-                <select id="reportType" onchange="toggleReportFields()" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px">
-                    <option value="fire">🔥 火情</option>
-                    <option value="pest">🐛 疫情</option>
-                </select>
-            </div>
-
-            <div style="margin-bottom:10px">
-                <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">名称</label>
-                <input id="reportName" type="text" placeholder="如：一号林区火情" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px"/>
-            </div>
-
-            <div style="margin-bottom:10px">
-                <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">📍 当前坐标（GPS自动获取）</label>
-                <div style="display:flex;gap:6px">
-                    <input id="reportLat" type="text" placeholder="纬度" readonly style="flex:1;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#00d5ff;border-radius:6px;padding:8px;font-size:13px"/>
-                    <input id="reportLng" type="text" placeholder="经度" readonly style="flex:1;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#00d5ff;border-radius:6px;padding:8px;font-size:13px"/>
-                    <button onclick="getGpsForReport()" style="background:#00d5ff;color:#000;border:none;border-radius:6px;padding:8px 12px;font-size:13px;font-weight:600">定位</button>
-                </div>
-                <div id="gpsStatus" style="font-size:11px;color:#78909c;margin-top:4px"></div>
-            </div>
-
-            <div id="fireFields" style="margin-bottom:10px">
-                <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">风险等级</label>
-                <select id="reportRiskLevel" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px">
-                    <option value="高">高</option>
-                    <option value="中" selected>中</option>
-                    <option value="低">低</option>
-                </select>
-                <div style="display:flex;gap:8px;margin-top:8px">
-                    <div style="flex:1">
-                        <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">温度(°C)</label>
-                        <input id="reportTemp" type="number" value="60" step="0.1" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px"/>
-                    </div>
-                    <div style="flex:1">
-                        <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">面积(亩)</label>
-                        <input id="reportArea" type="number" value="10" step="0.1" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px"/>
-                    </div>
-                </div>
-            </div>
-
-            <div id="pestFields" style="display:none;margin-bottom:10px">
-                <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">病虫害类型</label>
-                <select id="reportDiseaseType" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px">
-                    <option>松材线虫病</option>
-                    <option>美国白蛾</option>
-                    <option>松毛虫</option>
-                    <option>其他</option>
-                </select>
-                <div style="display:flex;gap:8px;margin-top:8px">
-                    <div style="flex:1">
-                        <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">置信度(%)</label>
-                        <input id="reportConfidence" type="number" value="75" min="0" max="100" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px"/>
-                    </div>
-                    <div style="flex:1">
-                        <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">面积(亩)</label>
-                        <input id="reportPestArea" type="number" value="5" step="0.1" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px"/>
-                    </div>
-                </div>
-            </div>
-
-            <div style="margin-bottom:10px">
-                <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">现场描述</label>
-                <textarea id="reportDesc" rows="2" placeholder="现场情况描述..." style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(0,213,255,0.2);color:#fff;border-radius:6px;padding:8px;font-size:13px;resize:vertical"></textarea>
-            </div>
-
-            <div style="margin-bottom:12px">
-                <label style="font-size:12px;color:#78909c;display:block;margin-bottom:4px">📷 现场照片</label>
-                <button onclick="captureReportPhoto()" style="width:100%;background:linear-gradient(135deg,#7c4dff,#651fff);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600">📷 拍照 / 选择图片</button>
-                <div id="reportPhotoPreview" style="margin-top:8px"></div>
-                <input id="reportImage" type="file" accept="image/*" capture="environment" style="display:none" onchange="previewReportPhoto(this)"/>
-            </div>
-
-            <button id="btnSubmitReport" onclick="submitReport()" style="width:100%;background:linear-gradient(135deg,#ff6e40,#ff3d3d);color:#fff;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:600">🚨 立即上报</button>
-            <div id="reportStatus" style="font-size:12px;text-align:center;margin-top:8px"></div>
-        </div>
-    </div>
 </div>
 
 <div class="toast" id="toast"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const API = window.location.origin;
-let token = '', currentRanger = null, currentTask = null;
-let map, routeLine, trackLine, posMarker;
-let patrolTimer = null, patrolRunning = false;
-let gpsPoints = [], patrolLogs = [];
+var API = window.location.origin;
+var token = localStorage.getItem('fps_token') || '', currentRanger = null, currentTask = null;
+var map, routeLine, trackLine, posMarker, routeStartMarker, routeEndMarker;
+var patrolTimer = null, patrolAnimTimer = null, patrolRunning = false;
+var gpsPoints = [], patrolLogs = [], allTasks = [];
+var rangerIcon = null;
+var remainLine = null;
+var gpsWatchId = null;  // real GPS watch ID
+var gpsStartTime = null;  // patrol start time for elapsed display
+
+function authHeaders() {
+    var h = { 'Content-Type': 'application/json' };
+    var t = token || localStorage.getItem('fps_token') || '';
+    if (t) h['Authorization'] = 'Bearer ' + t;
+    return h;
+}
+
+// Helper: extract waypoints array from routeGeometry (GeoJSON string)
+function extractWaypoints(task) {
+    if (!task.routeGeometry) return [];
+    try {
+        var geo = typeof task.routeGeometry === 'string' ? JSON.parse(task.routeGeometry) : task.routeGeometry;
+        if (geo && geo.type === 'LineString' && geo.coordinates) {
+            // GeoJSON coordinates are [lng, lat], convert to [lat, lng] for Leaflet
+            return geo.coordinates.map(function (c) { return [c[1], c[0]]; });
+        }
+        if (geo && geo.type === 'Point' && geo.coordinates) {
+            return [[geo.coordinates[1], geo.coordinates[0]]];
+        }
+        if (Array.isArray(geo)) return geo;
+    } catch (e) { console.warn('解析routeGeometry失败:', e); }
+    return [];
+}
+
+// ========== 数据加载 ==========
+async function loadAllTasks() {
+    try {
+        var resp = await fetch(API + '/api/patrol-tasks', { headers: authHeaders() });
+        var json = await resp.json();
+        if (json.success && Array.isArray(json.data)) {
+            allTasks = json.data;
+        } else if (Array.isArray(json)) {
+            allTasks = json;
+        } else if (Array.isArray(json.data)) {
+            allTasks = json.data;
+        }
+    } catch (e) { console.warn('加载任务失败:', e); }
+}
+
+function getMyTasks() {
+    if (!currentRanger) return [];
+    var rid = currentRanger.id;
+    var rname = currentRanger.name || '';
+    return allTasks.filter(function (t) {
+        // Match by rangerId (numeric) or rangerName (string)
+        if (t.rangerId && rid && Number(t.rangerId) === Number(rid)) return true;
+        if (t.rangerName && rname && t.rangerName === rname) return true;
+        // Fallback: check old members array format
+        if (t.members && t.members.indexOf(rid) !== -1) return true;
+        return false;
+    });
+}
 
 // ========== 切换护林员 ==========
 async function loadRangers() {
-    const res = await fetch(API+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:'admin'})});
-    const d=await res.json(); if(d.success) token=d.token;
-    const rr=await fetch(API+'/api/rangers',{headers:{'Authorization':'Bearer '+token}});
-    const rangers=await rr.json();
-    const sel=document.getElementById('rangerSelect');
-    sel.innerHTML='<option value="">选择护林员</option>';
-    rangers.forEach(r=>{sel.innerHTML+=`<option value="${r.id}">${r.name} - ${r.area}</option>`;});
+    try {
+        var res = await fetch(API + '/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'admin', password: '123456' })
+        });
+        var d = await res.json();
+        var t = (d.data && d.data.token) ? d.data.token : (d.token || '');
+        if (d.success && t) {
+            token = t;
+            localStorage.setItem('fps_token', token);
+        }
+    } catch (e) { console.warn('自动登录失败'); }
+    try {
+        var rr = await fetch(API + '/api/rangers', { headers: authHeaders() });
+        var rangersJson = await rr.json();
+        // Defensively unwrap: handle both plain array and {success, data} wrapper
+        var rangers = Array.isArray(rangersJson) ? rangersJson
+            : (rangersJson && Array.isArray(rangersJson.data) ? rangersJson.data : []);
+        var sel = document.getElementById('rangerSelect');
+        sel.innerHTML = '<option value="">选择护林员</option>';
+        rangers.forEach(function (r) {
+            sel.innerHTML += '<option value="' + r.id + '">' + r.name + ' - ' + r.area + '</option>';
+        });
+    } catch (e) { console.warn('加载护林员失败:', e); }
 }
 
-async function switchRanger(){
-    const id=document.getElementById('rangerSelect').value;
-    if(!id)return;
-    const rr=await fetch(API+'/api/rangers/'+parseInt(id.replace(/\D/g,'')),{headers:{'Authorization':'Bearer '+token}});
-    currentRanger=await rr.json();
+async function switchRanger() {
+    var id = document.getElementById('rangerSelect').value;
+    if (!id) return;
+    // Mark previous ranger offline
+    if (currentRanger && currentRanger.id) {
+        fetch(API + '/api/patrol/rangers/' + currentRanger.id + '/offline', {
+            method: 'PUT', headers: authHeaders()
+        }).catch(function () { });
+    }
+    try {
+        var rr = await fetch(API + '/api/rangers/' + parseInt(id.replace(/\D/g, '')), {
+            headers: authHeaders()
+        });
+        var rjson = await rr.json();
+        // Defensively unwrap: handle both plain object and {success, data} wrapper
+        currentRanger = (rjson && rjson.data && rjson.data.id) ? rjson.data : rjson;
+    } catch (e) {
+        currentRanger = { id: id, name: id };
+    }
+    // Mark new ranger online
+    if (currentRanger && currentRanger.id) {
+        fetch(API + '/api/patrol/rangers/' + currentRanger.id + '/online', {
+            method: 'PUT', headers: authHeaders()
+        }).catch(function () { });
+        // Immediately sync GPS position to backend for desktop locate button
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function (pos) {
+                if (currentRanger && currentRanger.id) {
+                    fetch(API + '/api/patrol/rangers/' + currentRanger.id + '/position', {
+                        method: 'PUT', headers: authHeaders(),
+                        body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+                    }).catch(function () { });
+                }
+            }, function () { }, { enableHighAccuracy: true, timeout: 10000 });
+        }
+    }
+    await loadAllTasks();
     loadMyTasks();
 }
 
+// Mark ranger offline when page closes
+window.addEventListener('beforeunload', function () {
+    if (currentRanger && currentRanger.id) {
+        try {
+            navigator.sendBeacon(API + '/api/patrol/rangers/' + currentRanger.id + '/offline');
+        } catch (e) { }
+    }
+});
+
 // ========== Tab ==========
-function switchTab(tabId){
-    document.querySelectorAll('.tab-bar a').forEach(a=>a.classList.remove('active'));
-    document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+function switchTab(tabId) {
+    document.querySelectorAll('.tab-bar a').forEach(function (a) { a.classList.remove('active'); });
+    document.querySelector('[data-tab="' + tabId + '"]').classList.add('active');
+    document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
     document.getElementById(tabId).classList.add('active');
-    if(tabId==='tab-map') setTimeout(()=>{if(map)map.invalidateSize();},300);
+    if (tabId === 'tab-map') setTimeout(function () { if (map) map.invalidateSize(); }, 300);
 }
 
 // ========== 我的任务 ==========
-async function loadMyTasks(){
-    if(!currentRanger)return;
-    const rid=parseInt(currentRanger.id.replace(/\D/g,''));
-    const tasks=await fetch(API+'/api/mobile/tasks?ranger_id='+rid).then(r=>r.json());
-    const list=document.getElementById('taskList');
-    if(!tasks.length){list.innerHTML='<div style="padding:20px;text-align:center;color:#78909c">暂无任务</div>';return;}
-    list.innerHTML=tasks.map(t=>{
-        const sc=t.status==='待执行'?'status-pending':t.status==='进行中'?'status-running':'status-done';
-        return`<div class="task-card" onclick="selectTask('${t.id}')">
-            <div class="tnum">${t.taskNumber}</div>
-            <div class="tname">${t.name}</div>
-            <div class="tmeta">${t.area} · ${t.timeStart}~${t.timeEnd}</div>
-            <span class="${sc}">${t.status}</span>
-        </div>`;
+async function loadMyTasks() {
+    if (!currentRanger) { await loadAllTasks(); if (!currentRanger) return; }
+    var tasks = getMyTasks();
+    var list = document.getElementById('taskList');
+    if (!tasks.length) {
+        list.innerHTML = '<div style="padding:20px;text-align:center;color:#78909c">暂无分配任务</div>';
+        return;
+    }
+    list.innerHTML = tasks.map(function (t) {
+        var cls = 'status-pending', label = t.status || '待执行';
+        if (t.status === '进行中') { cls = 'status-active'; label = '进行中'; }
+        else if (t.status === '已完成') { cls = 'status-completed'; label = '已完成'; }
+        else if (t.status === '草稿') { cls = 'status-pending'; label = '草稿'; }
+        else if (t.status === '待执行') { cls = 'status-pending'; label = '待执行'; }
+        var activeCls = currentTask && currentTask.id === t.id ? ' active-task' : '';
+        var displayNum = t.taskNumber || t.id;
+        var timeRange = (t.timeStart || '--') + '~' + (t.timeEnd || '--');
+        var rangerInfo = t.rangerName ? (' · ' + t.rangerName) : '';
+        var progressInfo = (t.progress != null && t.status === '进行中') ? (' · 进度' + t.progress + '%') : '';
+        return '<div class="task-card' + activeCls + '" onclick="selectTask(\'' + t.id + '\')">' +
+            '<div class="tnum">' + displayNum + '</div>' +
+            '<div class="tname">' + (t.name || t.taskNumber || t.id) + '</div>' +
+            '<div class="tmeta">' + (t.area || '--') + rangerInfo + ' · ' + timeRange + progressInfo + '</div>' +
+            '<span class="' + cls + '">' + label + '</span>' +
+            '</div>';
     }).join('');
 }
 
-async function selectTask(taskId){
-    const id=parseInt(taskId.replace(/\D/g,''));
-    const t=await fetch(API+'/api/patrol/tasks/'+id,{headers:{'Authorization':'Bearer '+token}}).then(r=>r.json());
-    currentTask=t; switchTab('tab-map');
+async function selectTask(taskId) {
+    var t = allTasks.find(function (x) { return x.id === taskId; });
+    if (!t) {
+        await loadAllTasks();
+        t = allTasks.find(function (x) { return x.id === taskId; });
+    }
+    if (!t) return;
+    // Try to get fresh data from API for this specific task
+    try {
+        var resp = await fetch(API + '/api/patrol-tasks/' + taskId, { headers: authHeaders() });
+        if (resp.ok) {
+            var fresh = await resp.json();
+            var freshTask = fresh.data || fresh;
+            if (freshTask && freshTask.id) {
+                t = freshTask;
+                // Update in allTasks array
+                var idx = allTasks.findIndex(function (x) { return x.id === taskId; });
+                if (idx !== -1) allTasks[idx] = t;
+            }
+        }
+    } catch (e) { /* use cached task */ }
+    currentTask = t;
+    switchTab('tab-map');
     drawRouteAndMap(t);
+    loadMyTasks();
 }
 
 // ========== 地图 + 路线 ==========
-function initMap(){
-    map=L.map('map',{zoomControl:false}).setView([28.500,119.920],13);
-    L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',{subdomains:'1234',maxZoom:18,attribution:'&copy; 高德地图'}).addTo(map);
-    L.control.zoom({position:'topright'}).addTo(map);
-    // 尝试GPS定位
-    if(navigator.geolocation){
-        navigator.geolocation.getCurrentPosition(p=>{
-            map.setView([p.coords.latitude,p.coords.longitude],15);
-            L.circleMarker([p.coords.latitude,p.coords.longitude],{radius:8,color:'#00e676',fillOpacity:1}).addTo(map).bindTooltip('我的位置');
-        },()=>{});
+function initMap() {
+    map = L.map('map', { zoomControl: false }).setView([28.530, 119.910], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+    // 绘制林区边界（与电脑端一致）
+    var areas = [
+        {cx:119.938,cy:28.555,w:0.028,h:0.026}, {cx:119.882,cy:28.555,w:0.028,h:0.026},
+        {cx:119.910,cy:28.517,w:0.028,h:0.025}, {cx:119.938,cy:28.500,w:0.028,h:0.020},
+        {cx:119.882,cy:28.500,w:0.028,h:0.020}
+    ];
+    areas.forEach(function(a) {
+        var b = [[a.cy-a.h/2,a.cx-a.w/2],[a.cy+a.h/2,a.cx-a.w/2],[a.cy+a.h/2,a.cx+a.w/2],[a.cy-a.h/2,a.cx+a.w/2]];
+        L.polyline(b.concat([b[0]]), {color:'#00e676',weight:1.5,opacity:0.5,dashArray:'6,8'}).addTo(map);
+    });
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function (p) {
+            map.setView([p.coords.latitude, p.coords.longitude], 15);
+            L.circleMarker([p.coords.latitude, p.coords.longitude], {
+                radius: 8, color: '#00e676', fillOpacity: 1
+            }).addTo(map).bindTooltip('我的位置');
+        }, function () { });
     }
 }
 
-function drawRouteAndMap(task){
-    if(routeLine)map.removeLayer(routeLine);
-    if(trackLine)map.removeLayer(trackLine);
-    if(posMarker)map.removeLayer(posMarker);
+function clearRouteLayers() {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (trackLine) { map.removeLayer(trackLine); trackLine = null; }
+    if (posMarker) { map.removeLayer(posMarker); posMarker = null; }
+    if (rangerIcon) { map.removeLayer(rangerIcon); rangerIcon = null; }
+    if (routeStartMarker) { map.removeLayer(routeStartMarker); routeStartMarker = null; }
+    if (routeEndMarker) { map.removeLayer(routeEndMarker); routeEndMarker = null; }
+    if (remainLine) { map.removeLayer(remainLine); remainLine = null; }
+    if (gpsWatchId !== null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+}
 
-    gpsPoints=[]; document.getElementById('ptsVal').textContent='0';
-    document.getElementById('progVal').textContent=task.progress||'0';
+function calcRouteDistance(wps) {
+    var d = 0;
+    for (var i = 1; i < wps.length; i++) {
+        var dlat = (wps[i][0] - wps[i - 1][0]) * 111320;
+        var dlng = (wps[i][1] - wps[i - 1][1]) * 111320 * Math.cos(wps[i][0] * Math.PI / 180);
+        d += Math.sqrt(dlat * dlat + dlng * dlng);
+    }
+    return d / 1000;
+}
 
-    // 规划路线
-    try{
-        const geo=JSON.parse(task.routeGeometry||'{}');
-        if(geo.coordinates){
-            const coords=geo.coordinates.map(c=>[c[1],c[0]]);
-            routeLine=L.polyline(coords,{color:'#00d5ff',weight:3,opacity:0.8,dashArray:'10,6'}).addTo(map);
-            map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
-            document.getElementById('distVal').textContent=(coords.length*0.25).toFixed(1);
+// Generate smooth patrol path following exact route waypoints (Catmull-Rom interpolation)
+// No crossing, no overlapping — path faithfully traces the planned route
+function generateWindingPath(waypoints) {
+    if (!waypoints || waypoints.length < 2) {
+        // Fallback: circular patrol
+        var path = [], clat = 28.530, clng = 119.910, r = 0.010;
+        for (var a = 0; a <= 360; a += 3) {
+            var rad = a * Math.PI / 180;
+            path.push([clat + r * Math.sin(rad) * 0.8, clng + r * Math.cos(rad)]);
         }
-    }catch(e){}
-    // 实际轨迹
-    try{
-        const at=JSON.parse(task.actualTrack||'{}');
-        if(at.coordinates&&at.coordinates.length){
-            const coords=at.coordinates.map(c=>[c[1],c[0]]);
-            trackLine=L.polyline(coords,{color:'#00e676',weight:4,opacity:0.9}).addTo(map);
-            document.getElementById('ptsVal').textContent=coords.length;
-            document.getElementById('progVal').textContent=Math.min(100,Math.round(coords.length/80*100));
-        }
-    }catch(e){}
+        return path;
+    }
 
-    // 按钮状态
-    const btnA=document.getElementById('btnAccept');
-    const btnS=document.getElementById('btnStart');
-    const btnF=document.getElementById('btnFinish');
-    const btnP=document.getElementById('btnPhoto');
-    btnA.disabled=task.status!=='待执行';
-    btnS.disabled=!(task.status==='待执行'||task.status==='进行中')||patrolRunning;
-    btnF.disabled=!patrolRunning;
-    btnP.disabled=!patrolRunning;
-    document.getElementById('timeVal').textContent=patrolRunning?'巡护中...':'--';
+    // Step 1: Catmull-Rom spline interpolation through all waypoints
+    var path = [];
+    var density = 10;
+    for (var i = 0; i < waypoints.length - 1; i++) {
+        var p0 = waypoints[Math.max(0, i - 1)];
+        var p1 = waypoints[i];
+        var p2 = waypoints[i + 1];
+        var p3 = waypoints[Math.min(waypoints.length - 1, i + 2)];
+        for (var s = 0; s < density; s++) {
+            var t = s / density;
+            var t2 = t * t, t3 = t2 * t;
+            var lat = 0.5 * ((2*p1[0]) + (-p0[0]+p2[0])*t + (2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2 + (-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3);
+            var lng = 0.5 * ((2*p1[1]) + (-p0[1]+p2[1])*t + (2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2 + (-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3);
+            path.push([lat, lng]);
+        }
+    }
+    path.push([waypoints[waypoints.length-1][0], waypoints[waypoints.length-1][1]]);
+
+    // Step 2: If path too short (<1.5km), extend with clean return loop
+    var dist = calcRouteDistance(path);
+    if (dist < 1.5 && path.length > 4) {
+        var offset = 0.00006; // ~6m parallel offset for return path
+        var ret = [];
+        for (var k = path.length - 1; k >= 0; k--) {
+            ret.push([path[k][0] + offset, path[k][1] + offset * 0.5]);
+        }
+        path = path.concat(ret);
+    }
+    return path;
+}
+
+function drawRouteAndMap(task) {
+    clearRouteLayers();
+    gpsPoints = [];
+    document.getElementById('ptsVal').textContent = '0';
+    document.getElementById('distVal').textContent = '--';
+    document.getElementById('progVal').textContent = task.progress || '0';
+    document.getElementById('timeVal').textContent = '--';
+
+    var routeInfo = document.getElementById('routeInfoBar');
+    var routeTitle = document.getElementById('routeTitle');
+    var routeWpCount = document.getElementById('routeWpCount');
+    var routeDist = document.getElementById('routeDist');
+
+    // 规划路线（黄色 #fdd835）— extract from routeGeometry GeoJSON
+    var wps = extractWaypoints(task);
+    if (wps && wps.length > 0) {
+        var coords = wps.map(function (c) { return [c[0], c[1]]; });
+        routeLine = L.polyline(coords, {
+            color: '#fdd835', weight: 3, opacity: 0.8, dashArray: '8,4'
+        }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+
+        // 起点/终点标记
+        var startIcon = L.divIcon({
+            html: '<div style="width:10px;height:10px;background:#fdd835;border:2px solid #fff;border-radius:50%;"></div>',
+            className: '', iconSize: [10, 10], iconAnchor: [5, 5]
+        });
+        var endIcon = L.divIcon({
+            html: '<div style="width:10px;height:10px;background:#ff5252;border:2px solid #fff;border-radius:50%;"></div>',
+            className: '', iconSize: [10, 10], iconAnchor: [5, 5]
+        });
+        routeStartMarker = L.marker(coords[0], { icon: startIcon }).addTo(map).bindTooltip('路线起点');
+        routeEndMarker = L.marker(coords[coords.length - 1], { icon: endIcon }).addTo(map).bindTooltip('路线终点');
+
+        routeInfo.style.display = 'block';
+        routeTitle.textContent = '🚩 ' + (task.name || task.taskNumber || '');
+        routeWpCount.textContent = wps.length + '个航点';
+        var dist = calcRouteDistance(wps);
+        routeDist.textContent = dist.toFixed(1) + 'km';
+        document.getElementById('distVal').textContent = dist.toFixed(1);
+    } else {
+        routeInfo.style.display = 'none';
+    }
+
+    // 按钮状态 — Chinese statuses: 草稿, 待执行, 进行中, 已完成
+    var btnA = document.getElementById('btnAccept');
+    var btnS = document.getElementById('btnStart');
+    var btnF = document.getElementById('btnFinish');
+    var btnP = document.getElementById('btnPhoto');
+    btnA.disabled = task.status !== '待执行' || patrolRunning;
+    btnS.disabled = !(task.status === '待执行' || task.status === '进行中') || patrolRunning;
+    btnF.disabled = !patrolRunning;
+    btnP.disabled = !patrolRunning;
+    document.getElementById('timeVal').textContent = patrolRunning ? '巡护中...' : '--';
 }
 
 // ========== 任务操作 ==========
-async function acceptTask(){
-    if(!currentTask)return;
-    await fetch(API+'/api/patrol/tasks/'+parseInt(currentTask.id.replace(/\D/g,'')),{
-        method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-        body:JSON.stringify({status:'进行中',progress:0})
+async function acceptTask() {
+    if (!currentTask) return;
+    var tid = currentTask.id;
+    await fetch(API + '/api/patrol-tasks/' + tid, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({ status: '进行中' })
     });
-    currentTask.status='进行中'; drawRouteAndMap(currentTask);
-    addLog('接受任务: '+currentTask.name);
+    currentTask.status = '进行中';
+    drawRouteAndMap(currentTask);
+    addLog('接受任务: ' + currentTask.name);
     toast('✅ 任务已接受');
+    var t = allTasks.find(function (x) { return x.id === tid; });
+    if (t) t.status = '进行中';
+    loadMyTasks();
 }
 
-async function startPatrol(){
-    if(!currentTask)return;
-    patrolRunning=true;
-    document.getElementById('btnStart').disabled=true;
-    document.getElementById('btnFinish').disabled=false;
-    document.getElementById('btnPhoto').disabled=false;
-    document.getElementById('timeVal').textContent='巡护中...';
-    addLog('开始巡护: '+currentTask.name);
+async function startPatrol() {
+    if (!currentTask) return;
+    patrolRunning = true;
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnAccept').disabled = true;
+    document.getElementById('btnFinish').disabled = false;
+    document.getElementById('btnPhoto').disabled = false;
+    document.getElementById('timeVal').textContent = '巡护中...';
+    addLog('开始巡护: ' + currentTask.name);
 
-    // GPS追踪 - 每5秒上传
-    function uploadGps(){
-        if(!patrolRunning)return;
-        if(navigator.geolocation){
-            navigator.geolocation.getCurrentPosition(async p=>{
-                const lat=p.coords.latitude, lng=p.coords.longitude;
-                gpsPoints.push([lat,lng]);
-                document.getElementById('ptsVal').textContent=gpsPoints.length;
-                document.getElementById('progVal').textContent=Math.min(100,Math.round(gpsPoints.length/80*100));
-                // 更新地图
-                if(trackLine)map.removeLayer(trackLine);
-                if(gpsPoints.length>1)trackLine=L.polyline(gpsPoints,{color:'#00e676',weight:4,opacity:0.9}).addTo(map);
-                if(posMarker)map.removeLayer(posMarker);
-                posMarker=L.circleMarker([lat,lng],{radius:8,color:'#00e676',fillOpacity:1}).addTo(map).bindTooltip('当前位置');
-                // 上传
-                await fetch(API+'/api/patrol/tasks/'+parseInt(currentTask.id.replace(/\D/g,''))+'/gps',{
-                    method:'POST',headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({lat,lng,speed:p.coords.speed||3,accuracy:p.coords.accuracy||5})
-                });
-            },()=>{
-                // GPS不可用，模拟位置
-                const lat=28.500+Math.random()*0.02, lng=119.910+Math.random()*0.02;
-                gpsPoints.push([lat,lng]);
-                document.getElementById('ptsVal').textContent=gpsPoints.length;
-                fetch(API+'/api/patrol/tasks/'+parseInt(currentTask.id.replace(/\D/g,''))+'/gps',{
-                    method:'POST',headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({lat,lng,speed:3,accuracy:10})
-                });
-            });
-        }
-    }
-    uploadGps();
-    patrolTimer=setInterval(uploadGps,5000);
-    toast('▶ 巡护已开始');
-}
+    var wps = extractWaypoints(currentTask);
+    var patrolPath = generateWindingPath(wps);
+    var pathDist = calcRouteDistance(patrolPath);
+    document.getElementById('distVal').textContent = pathDist.toFixed(1);
 
-async function finishPatrol(){
-    if(patrolTimer)clearInterval(patrolTimer);
-    patrolRunning=false;
-    await fetch(API+'/api/patrol/tasks/'+parseInt(currentTask.id.replace(/\D/g,'')),{
-        method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-        body:JSON.stringify({status:'已完成',progress:100})
+    gpsPoints = [];
+    gpsStartTime = Date.now();
+
+    // Ranger icon
+    var rIcon = L.icon({
+        iconUrl: '/forest-ranger.png', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
     });
-    document.getElementById('progVal').textContent='100';
-    document.getElementById('btnStart').disabled=true;
-    document.getElementById('btnFinish').disabled=true;
-    document.getElementById('btnPhoto').disabled=true;
-    addLog('完成巡护: '+currentTask.name+' | 共'+gpsPoints.length+'个轨迹点');
+
+    // Remove the static route line; we'll manage yellow/green dynamically
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+
+    // Draw initial full route in bright yellow
+    routeLine = L.polyline(patrolPath, {
+        color: '#fdd835', weight: 4, opacity: 0.9, dashArray: '8,4'
+    }).addTo(map);
+
+    // ===== 判断：任务名包含"移动"→ 真实GPS定位模式 =====
+    var useRealGps = currentTask.name && currentTask.name.indexOf('移动') !== -1;
+
+    if (useRealGps && navigator.geolocation) {
+        // ========== 真实GPS巡护模式 ==========
+        toast('📍 真实GPS巡护模式已启动');
+        addLog('GPS模式: 等待定位...');
+
+        // Keep the full yellow route visible
+        // remainLine shows the full route dimmed until GPS covers parts of it
+        remainLine = L.polyline(patrolPath, {
+            color: '#fdd835', weight: 3, opacity: 0.5, dashArray: '6,6'
+        }).addTo(map);
+
+        var uploadCounter = 0;
+        gpsWatchId = navigator.geolocation.watchPosition(function (pos) {
+            if (!patrolRunning) return;
+            var lat = pos.coords.latitude;
+            var lng = pos.coords.longitude;
+            var acc = pos.coords.accuracy || 0;
+            gpsPoints.push([lat, lng]);
+            uploadCounter++;
+
+            // Move ranger icon to real position
+            if (!rangerIcon) {
+                rangerIcon = L.marker([lat, lng], { icon: rIcon, zIndexOffset: 1000 }).addTo(map);
+            } else {
+                rangerIcon.setLatLng([lat, lng]);
+            }
+
+            // Accuracy circle
+            if (posMarker) map.removeLayer(posMarker);
+            posMarker = L.circleMarker([lat, lng], {
+                radius: Math.min(20, Math.max(4, acc / 5)), color: '#00e676',
+                fillColor: '#00e676', fillOpacity: 0.2, weight: 1
+            }).addTo(map);
+
+            // Center map on real position
+            map.panTo([lat, lng], { animate: true, duration: 0.5 });
+
+            // GREEN trail: real GPS track
+            if (trackLine) map.removeLayer(trackLine);
+            if (gpsPoints.length > 1) {
+                trackLine = L.polyline(gpsPoints, {
+                    color: '#00e676', weight: 5, opacity: 0.95, lineJoin: 'round', lineCap: 'round'
+                }).addTo(map);
+            }
+
+            // UI: time display is handled exclusively by the patrolTimer setInterval below
+            document.getElementById('ptsVal').textContent = gpsPoints.length;
+
+            // Progress: based on real GPS distance vs planned distance
+            var gpsDist = calcRouteDistance(gpsPoints);
+            var prog = Math.min(99, Math.round((gpsDist / Math.max(0.01, pathDist)) * 100));
+            document.getElementById('progVal').textContent = prog;
+            document.getElementById('distVal').textContent = gpsDist.toFixed(2);
+
+            // Upload progress to backend every 5 points (no log entry, only progress)
+            if (uploadCounter % 5 === 0 && currentTask) {
+                fetch(API + '/api/patrol-tasks/' + currentTask.id, {
+                    method: 'PUT', headers: authHeaders(),
+                    body: JSON.stringify({ progress: prog })
+                }).catch(function () { });
+            }
+            // Sync ranger position to backend on every GPS fix (lightweight, no log)
+            if (currentRanger && currentRanger.id) {
+                fetch(API + '/api/patrol/rangers/' + currentRanger.id + '/position', {
+                    method: 'PUT', headers: authHeaders(),
+                    body: JSON.stringify({ lat: lat, lng: lng })
+                }).catch(function () { });
+            }
+        }, function (err) {
+            addLog('GPS定位失败: ' + err.message);
+            toast('⚠ GPS定位失败: ' + err.message);
+        }, {
+            enableHighAccuracy: true, timeout: 15000, maximumAge: 0
+        });
+
+        // Real-time clock: update elapsed time display every second
+        patrolTimer = setInterval(function () {
+            if (!patrolRunning) return;
+            var elapsed = Math.floor((Date.now() - gpsStartTime) / 1000);
+            var min = Math.floor(elapsed / 60);
+            var sec = elapsed % 60;
+            document.getElementById('timeVal').textContent = min + '分' + (sec < 10 ? '0' : '') + sec + '秒';
+            document.getElementById('ptsVal').textContent = gpsPoints.length;
+            if (gpsPoints.length > 1) {
+                var gpsDist = calcRouteDistance(gpsPoints);
+                var prog = Math.min(99, Math.round((gpsDist / Math.max(0.01, pathDist)) * 100));
+                document.getElementById('progVal').textContent = prog;
+                document.getElementById('distVal').textContent = gpsDist.toFixed(2);
+            }
+        }, 200);
+
+    } else {
+        // ========== 模拟巡护模式（原有逻辑不变） ==========
+        var elapsed = 0;
+        var currentIdx = 0;
+
+        patrolAnimTimer = setInterval(function () {
+            if (!patrolRunning) return;
+            elapsed++;
+            currentIdx = Math.min(currentIdx + 1, patrolPath.length - 1);
+            var pt = patrolPath[currentIdx];
+            var lat = pt[0], lng = pt[1];
+            gpsPoints.push([lat, lng]);
+
+            if (!rangerIcon) {
+                rangerIcon = L.marker([lat, lng], { icon: rIcon, zIndexOffset: 1000 }).addTo(map);
+            } else {
+                rangerIcon.setLatLng([lat, lng]);
+            }
+            rangerIcon.bindTooltip((currentIdx + 1) + '/' + patrolPath.length, { direction: 'top', offset: [0, -16] });
+
+            if (posMarker) map.removeLayer(posMarker);
+            posMarker = L.circleMarker([lat, lng], {
+                radius: 6, color: '#00e676', fillColor: '#00e676', fillOpacity: 0.4, weight: 1
+            }).addTo(map);
+
+            map.panTo([lat, lng], { animate: true, duration: 0.3 });
+
+            if (trackLine) map.removeLayer(trackLine);
+            if (gpsPoints.length > 1) {
+                trackLine = L.polyline(gpsPoints, {
+                    color: '#00e676', weight: 5, opacity: 0.95, lineJoin: 'round', lineCap: 'round'
+                }).addTo(map);
+            }
+
+            if (remainLine) map.removeLayer(remainLine);
+            if (currentIdx < patrolPath.length - 1) {
+                var ahead = patrolPath.slice(currentIdx);
+                remainLine = L.polyline(ahead, {
+                    color: '#fdd835', weight: 3, opacity: 0.5, dashArray: '6,6'
+                }).addTo(map);
+            }
+
+            var min = Math.floor(elapsed / 60);
+            var sec = elapsed % 60;
+            document.getElementById('timeVal').textContent = min + '分' + (sec < 10 ? '0' : '') + sec + '秒';
+            document.getElementById('ptsVal').textContent = gpsPoints.length;
+            document.getElementById('progVal').textContent = Math.min(100, Math.round(currentIdx / (patrolPath.length - 1) * 100));
+
+            if (elapsed % 20 === 0 && currentTask) {
+                var prog = Math.min(99, Math.round(currentIdx / (patrolPath.length - 1) * 100));
+                fetch(API + '/api/patrol-tasks/' + currentTask.id, {
+                    method: 'PUT', headers: authHeaders(),
+                    body: JSON.stringify({ progress: prog })
+                }).catch(function () { });
+            }
+            // Sync ranger position every 10 ticks (simulated mode)
+            if (elapsed % 10 === 0 && currentRanger && currentRanger.id) {
+                fetch(API + '/api/patrol/rangers/' + currentRanger.id + '/position', {
+                    method: 'PUT', headers: authHeaders(),
+                    body: JSON.stringify({ lat: lat, lng: lng })
+                }).catch(function () { });
+            }
+
+            if (currentIdx >= patrolPath.length - 1) {
+                patrolRunning = false;
+                clearInterval(patrolAnimTimer);
+                patrolAnimTimer = null;
+                if (remainLine) { map.removeLayer(remainLine); remainLine = null; }
+                if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+                document.getElementById('progVal').textContent = '100';
+                document.getElementById('timeVal').textContent = '已完成';
+                document.getElementById('btnFinish').disabled = false;
+                addLog('巡护轨迹完成: ' + pathDist.toFixed(1) + 'km, ' + gpsPoints.length + '个点');
+                toast('巡护轨迹已走完，点击"完成"提交');
+            }
+        }, 500);
+
+        toast('▶ 巡护已开始，模拟行进中...');
+    }
+}
+
+async function finishPatrol() {
+    if (patrolTimer) clearInterval(patrolTimer);
+    if (patrolAnimTimer) { clearInterval(patrolAnimTimer); patrolAnimTimer = null; }
+    if (gpsWatchId !== null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+    patrolRunning = false;
+    var tid = currentTask.id;
+    await fetch(API + '/api/patrol-tasks/' + tid, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({ status: '已完成', progress: 100 })
+    });
+    // Write ONE summary patrol log on task completion
+    var durationMin = gpsStartTime ? Math.round((Date.now() - gpsStartTime) / 60000) : 0;
+    var distKm = gpsPoints.length > 1 ? calcRouteDistance(gpsPoints) : 0;
+    var area = currentTask.area || '';
+    var lastLat = gpsPoints.length > 0 ? gpsPoints[gpsPoints.length - 1][0] : 0;
+    var lastLng = gpsPoints.length > 0 ? gpsPoints[gpsPoints.length - 1][1] : 0;
+    fetch(API + '/api/patrol-logs', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({
+            task_id: tid,
+            user_id: currentRanger.id,
+            user_name: currentRanger.name,
+            rangerName: currentRanger.name,
+            date: new Date().toISOString().slice(0, 10),
+            area: area,
+            durationMin: durationMin,
+            distanceKm: Math.round(distKm * 100) / 100,
+            findings: '巡护完成 | ' + currentTask.name + ' | ' + gpsPoints.length + '个轨迹点',
+            content: '巡护完成 | ' + currentTask.name + ' | ' + gpsPoints.length + '个轨迹点',
+            type: 'complete',
+            lat: lastLat,
+            lng: lastLng
+        })
+    }).catch(function () { });
+    document.getElementById('progVal').textContent = '100';
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnAccept').disabled = true;
+    document.getElementById('btnFinish').disabled = true;
+    document.getElementById('btnPhoto').disabled = true;
+    document.getElementById('timeVal').textContent = '已完成';
+    addLog('完成巡护: ' + currentTask.name + ' | 共' + gpsPoints.length + '个轨迹点 | ' + durationMin + '分钟 ' + distKm.toFixed(2) + 'km');
+    var t = allTasks.find(function (x) { return x.id === tid; });
+    if (t) { t.status = '已完成'; t.progress = 100; }
+    currentTask.status = '已完成';
+    currentTask.progress = 100;
+    loadMyTasks();
     toast('✅ 巡护完成！');
 }
 
 // ========== 拍照 ==========
-function takePhoto(){
-    const inp=document.createElement('input');
-    inp.type='file'; inp.accept='image/*'; inp.capture='environment';
-    inp.onchange=async()=>{
-        if(inp.files[0]){
-            addLog('📷 拍照上传: '+inp.files[0].name);
-            toast('📷 照片已记录');
+function takePhoto() {
+    var lat = gpsPoints.length > 0 ? gpsPoints[gpsPoints.length - 1][0] : (currentRanger ? currentRanger.lat || 28.510 : 28.510);
+    var lng = gpsPoints.length > 0 ? gpsPoints[gpsPoints.length - 1][1] : (currentRanger ? currentRanger.lng || 119.910 : 119.910);
+    openMobileUpload('fire', lat, lng);
+}
+
+function openMobileUpload(dtype, defLat, defLng) {
+    var old = document.getElementById('disasterUploadModal');
+    if (old) old.remove();
+
+    var isFire = true;
+    var title = '上报火情';
+    var lat = defLat || 28.510;
+    var lng = defLng || 119.910;
+    var reporter = currentRanger ? currentRanger.name : '护林员';
+
+    var modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    modal.id = 'disasterUploadModal';
+    modal.innerHTML = '<div style="background:#0f1d33;border:1px solid #1a3355;border-radius:10px;width:92%;max-width:400px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);">' +
+        '<div style="padding:16px 20px;border-bottom:1px solid #1a3355;display:flex;justify-content:space-between;align-items:center;">' +
+            '<h3 style="margin:0;color:#fff;font-size:16px;">' + title + '</h3>' +
+            '<button class="close-upload-modal" style="background:none;border:none;color:#8ba4bc;font-size:18px;cursor:pointer;">✕</button>' +
+        '</div>' +
+        '<div style="padding:16px 20px;">' +
+            '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
+                '<button id="mobTabFire" style="flex:1;padding:8px;background:#ff3d3d;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;">🔥 火情上报</button>' +
+                '<button id="mobTabPest" style="flex:1;padding:8px;background:rgba(255,255,255,0.08);color:#8ba4bc;border:1px solid #1a3355;border-radius:6px;font-size:13px;">🐛 疫情上报</button>' +
+            '</div>' +
+            '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">名称</label><input type="text" id="upName" placeholder="如：一号林区火情" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div>' +
+            '<div style="display:flex;gap:8px;"><div class="form-group" style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">纬度</label><input type="number" id="upLat" value="' + lat.toFixed(6) + '" step="0.0001" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div><div class="form-group" style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">经度</label><input type="number" id="upLng" value="' + lng.toFixed(6) + '" step="0.0001" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div></div>' +
+            '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">上报人</label><input type="text" id="upReporter" value="' + reporter + '" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div>' +
+            '<div id="mobFireFields">' +
+                '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">风险等级</label><select id="upRiskLevel" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"><option value="高">高</option><option value="中" selected>中</option><option value="低">低</option></select></div>' +
+                '<div style="display:flex;gap:8px;"><div class="form-group" style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">温度(°C)</label><input type="number" id="upTemp" value="60" step="0.1" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div><div class="form-group" style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">面积(亩)</label><input type="number" id="upArea" value="10" step="0.1" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div></div>' +
+            '</div>' +
+            '<div id="mobPestFields" style="display:none;">' +
+                '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">病虫害类型</label><select id="upDiseaseType" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"><option>松材线虫病</option><option>美国白蛾</option><option>松毛虫</option><option>其他</option></select></div>' +
+                '<div style="display:flex;gap:8px;"><div class="form-group" style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">置信度(%)</label><input type="number" id="upConfidence" value="75" min="0" max="100" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div><div class="form-group" style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">面积(亩)</label><input type="number" id="upPestArea" value="5" step="0.1" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"/></div></div>' +
+            '</div>' +
+            '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">描述</label><textarea id="upDesc" rows="2" placeholder="现场描述..." style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;font-size:13px;"></textarea></div>' +
+            '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">现场图片</label><input type="file" id="upImage" accept="image/*" style="width:100%;color:#e4edf5;font-size:13px;"/><div id="upImagePreview" style="margin-top:8px;"></div></div>' +
+            '<div style="display:flex;gap:8px;margin-top:16px;">' +
+                '<button id="btnSubmitUpload" style="flex:1;padding:10px;background:#00d5ff;color:#060e1a;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;">上传并同步</button>' +
+                '<button class="close-upload-modal" style="flex:1;padding:10px;background:#1a3355;color:#e4edf5;border:1px solid #1a3355;border-radius:6px;font-size:14px;cursor:pointer;">取消</button>' +
+            '</div>' +
+            '<div id="upStatus" style="margin-top:10px;font-size:12px;text-align:center;"></div>' +
+        '</div></div>';
+    modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+    modal.querySelectorAll('.close-upload-modal').forEach(function(b) {
+        b.onclick = function() { modal.remove(); };
+    });
+    document.body.appendChild(modal);
+
+    // 类型切换
+    document.getElementById('mobTabFire').onclick = function() {
+        document.getElementById('mobTabFire').style.background = '#ff3d3d'; document.getElementById('mobTabFire').style.color = '#fff';
+        document.getElementById('mobTabPest').style.background = 'rgba(255,255,255,0.08)'; document.getElementById('mobTabPest').style.color = '#8ba4bc';
+        document.getElementById('mobFireFields').style.display = '';
+        document.getElementById('mobPestFields').style.display = 'none';
+        isFire = true;
+    };
+    document.getElementById('mobTabPest').onclick = function() {
+        document.getElementById('mobTabPest').style.background = '#ff9800'; document.getElementById('mobTabPest').style.color = '#fff';
+        document.getElementById('mobTabFire').style.background = 'rgba(255,255,255,0.08)'; document.getElementById('mobTabFire').style.color = '#8ba4bc';
+        document.getElementById('mobPestFields').style.display = '';
+        document.getElementById('mobFireFields').style.display = 'none';
+        isFire = false;
+    };
+
+    // 图片预览
+    document.getElementById('upImage').addEventListener('change', function() {
+        var file = this.files[0];
+        var preview = document.getElementById('upImagePreview');
+        if (file) {
+            var reader = new FileReader();
+            reader.onload = function(e) { preview.innerHTML = '<img src="' + e.target.result + '" style="width:100%;max-height:160px;object-fit:cover;border-radius:4px;"/>'; };
+            reader.readAsDataURL(file);
+        } else { preview.innerHTML = ''; }
+    });
+
+    // 提交
+    document.getElementById('btnSubmitUpload').addEventListener('click', function() { submitMobileUpload(isFire); });
+}
+
+async function submitMobileUpload(isFire) {
+    var dtype = isFire ? 'fire' : 'pest';
+    var status = document.getElementById('upStatus');
+    var btn = document.getElementById('btnSubmitUpload');
+    btn.disabled = true; btn.textContent = '上传中...';
+    status.style.color = '#ffab00'; status.textContent = '正在上传并同步...';
+
+    try {
+        var fd = new FormData();
+        fd.append('type', dtype);
+        fd.append('name', document.getElementById('upName').value || (isFire ? '火情' : '疫情'));
+        fd.append('lat', document.getElementById('upLat').value);
+        fd.append('lng', document.getElementById('upLng').value);
+        fd.append('reportedBy', document.getElementById('upReporter').value || '护林员');
+        fd.append('description', document.getElementById('upDesc').value || '');
+        if (isFire) {
+            fd.append('riskLevel', document.getElementById('upRiskLevel').value);
+            fd.append('temperatureC', document.getElementById('upTemp').value);
+            fd.append('areaMu', document.getElementById('upArea').value);
+        } else {
+            fd.append('diseaseType', document.getElementById('upDiseaseType').value);
+            fd.append('confidence', document.getElementById('upConfidence').value);
+            fd.append('affectedAreaMu', document.getElementById('upPestArea').value);
+        }
+        var imgInput = document.getElementById('upImage');
+        if (imgInput.files[0]) fd.append('image', imgInput.files[0]);
+
+        var upHeaders = {};
+var upToken = token || localStorage.getItem('fps_token') || '';
+if (upToken) upHeaders['Authorization'] = 'Bearer ' + upToken;
+var rs = await fetch(API + '/api/disasters/upload', { method: 'POST', headers: upHeaders, body: fd });
+        var js = await rs.json();
+        if (js.success) {
+            status.style.color = '#4caf50';
+            status.textContent = '上传成功！系统已同步更新';
+            addLog('灾害上报成功: ' + (js.data.name || ''));
+            toast('上报成功');
+            setTimeout(function() {
+                var modal = document.getElementById('disasterUploadModal');
+                if (modal) modal.remove();
+            }, 1500);
+        } else {
+            status.style.color = '#ff5252';
+            status.textContent = '上传失败: ' + (js.error || '未知');
+            btn.disabled = false; btn.textContent = '上传并同步';
+        }
+    } catch (e) {
+        status.style.color = '#ff5252';
+        status.textContent = '网络错误';
+        btn.disabled = false; btn.textContent = '上传并同步';
+    }
+}
+
+function showDisasterUploadModal(file, lat, lng) {
+    // 移除旧弹窗
+    var old = document.getElementById('disasterUploadModal');
+    if (old) old.remove();
+
+    var modal = document.createElement('div');
+    modal.id = 'disasterUploadModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = '<div style="background:#0f1d33;border:1px solid #1a3355;border-radius:10px;width:92%;max-width:400px;max-height:90vh;overflow-y:auto;padding:16px;">' +
+        '<h3 style="color:#fff;margin:0 0 12px;font-size:16px;">📋 灾害上报</h3>' +
+        '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">灾害类型</label><select id="mobDtype" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;"><option value="fire">🔥 火情</option><option value="pest">🐛 疫情/虫害</option></select></div>' +
+        '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">名称</label><input id="mobName" value="手机端上报" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;"/></div>' +
+        '<div class="form-group"><label style="color:#8ba4bc;font-size:12px;">描述</label><textarea id="mobDesc" rows="2" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;"></textarea></div>' +
+        '<div class="form-group" id="mobFireFields"><label style="color:#8ba4bc;font-size:12px;">风险等级</label><select id="mobRisk" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;"><option>高</option><option>中</option><option>低</option></select></div>' +
+        '<div class="form-group" id="mobPestFields" style="display:none;"><label style="color:#8ba4bc;font-size:12px;">病害类型</label><select id="mobDisease" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;"><option>松材线虫病</option><option>美国白蛾</option><option>松毛虫</option><option>其他</option></select></div>' +
+        '<div style="display:flex;gap:8px;margin:8px 0;"><div style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">经度</label><input id="mobLng" value="' + lng.toFixed(6) + '" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;"/></div><div style="flex:1;"><label style="color:#8ba4bc;font-size:12px;">纬度</label><input id="mobLat" value="' + lat.toFixed(6) + '" style="width:100%;padding:8px;background:#0a1628;border:1px solid #1a3355;color:#e4edf5;border-radius:4px;"/></div></div>' +
+        '<div style="display:flex;gap:8px;margin-top:12px;">' +
+        '<button id="btnMobSubmit" style="flex:1;padding:10px;background:linear-gradient(135deg,#00d5ff,#0091ea);color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;">提交上报</button>' +
+        '<button id="btnMobCancel" style="flex:1;padding:10px;background:rgba(255,255,255,0.1);color:#8ba4bc;border:1px solid #1a3355;border-radius:6px;font-size:14px;">取消</button>' +
+        '</div></div>';
+    document.body.appendChild(modal);
+
+    // 类型切换
+    document.getElementById('mobDtype').onchange = function() {
+        document.getElementById('mobFireFields').style.display = this.value === 'fire' ? '' : 'none';
+        document.getElementById('mobPestFields').style.display = this.value === 'pest' ? '' : 'none';
+    };
+
+    // 取消按钮
+    document.getElementById('btnMobCancel').onclick = function() { modal.remove(); };
+    // 点击背景关闭
+    modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+
+    // 提交
+    document.getElementById('btnMobSubmit').onclick = async function() {
+        var dtype = document.getElementById('mobDtype').value;
+        var name = document.getElementById('mobName').value.trim();
+        var desc = document.getElementById('mobDesc').value.trim();
+        var subLat = parseFloat(document.getElementById('mobLat').value);
+        var subLng = parseFloat(document.getElementById('mobLng').value);
+        if (!name) { alert('请输入名称'); return; }
+        var btn = document.getElementById('btnMobSubmit');
+        btn.disabled = true; btn.textContent = '上传中...';
+
+        try {
+            var fd = new FormData();
+            fd.append('type', dtype);
+            fd.append('name', name);
+            fd.append('lat', String(subLat));
+            fd.append('lng', String(subLng));
+            fd.append('reportedBy', currentRanger ? currentRanger.name : '护林员');
+            fd.append('description', desc || '手机端拍照上报');
+            fd.append('image', file);
+            if (dtype === 'fire') {
+                fd.append('riskLevel', document.getElementById('mobRisk').value);
+                fd.append('temperatureC', '0');
+                fd.append('areaMu', '5');
+            } else {
+                fd.append('diseaseType', document.getElementById('mobDisease').value);
+                fd.append('confidence', '80');
+                fd.append('affectedAreaMu', '5');
+            }
+            var upHeaders = {};
+var upToken = token || localStorage.getItem('fps_token') || '';
+if (upToken) upHeaders['Authorization'] = 'Bearer ' + upToken;
+var rs = await fetch(API + '/api/disasters/upload', { method: 'POST', headers: upHeaders, body: fd });
+            var js = await rs.json();
+            if (js.success) {
+                addLog('灾害上报成功: ' + name);
+                toast('✅ 上报成功！');
+                modal.remove();
+            } else {
+                alert('上报失败: ' + (js.error || '未知错误'));
+                btn.disabled = false; btn.textContent = '提交上报';
+            }
+        } catch (e) {
+            alert('网络错误');
+            btn.disabled = false; btn.textContent = '提交上报';
         }
     };
-    inp.click();
 }
 
 // ========== 日志 ==========
-function addLog(msg){
-    const now=new Date();
-    const time=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
-    patrolLogs.unshift({time,msg});
-    document.getElementById('logList').innerHTML=patrolLogs.slice(0,50).map(l=>`<li><span class="log-time">${l.time}</span> ${l.msg}</li>`).join('');
+function addLog(msg) {
+    var now = new Date();
+    var time = now.getHours().toString().padStart(2, '0') + ':' +
+        now.getMinutes().toString().padStart(2, '0') + ':' +
+        now.getSeconds().toString().padStart(2, '0');
+    patrolLogs.unshift({ time: time, msg: msg });
+    document.getElementById('logList').innerHTML = patrolLogs.slice(0, 50).map(function (l) {
+        return '<li><span class="log-time">' + l.time + '</span> ' + l.msg + '</li>';
+    }).join('');
 }
 
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2500);}
-
-// ========== 火情/疫情上报 ==========
-function toggleReportFields(){
-    const type=document.getElementById('reportType').value;
-    document.getElementById('fireFields').style.display=type==='fire'?'block':'none';
-    document.getElementById('pestFields').style.display=type==='pest'?'block':'none';
-}
-
-function getGpsForReport(){
-    const status=document.getElementById('gpsStatus');
-    status.style.color='#ffab00';
-    status.textContent='📍 正在获取GPS定位...';
-    if(!navigator.geolocation){
-        status.style.color='#ff6b6b';
-        status.textContent='❌ 设备不支持GPS';
-        return;
-    }
-    navigator.geolocation.getCurrentPosition(p=>{
-        document.getElementById('reportLat').value=p.coords.latitude.toFixed(6);
-        document.getElementById('reportLng').value=p.coords.longitude.toFixed(6);
-        status.style.color='#00e676';
-        status.textContent='✅ 定位成功（精度±'+Math.round(p.coords.accuracy||0)+'米）';
-    },err=>{
-        // GPS失败时用护林员当前位置或默认坐标
-        const lat=currentRanger?currentRanger.lat:28.467;
-        const lng=currentRanger?currentRanger.lng:119.922;
-        document.getElementById('reportLat').value=lat.toFixed(6);
-        document.getElementById('reportLng').value=lng.toFixed(6);
-        status.style.color='#ff9800';
-        status.textContent='⚠ GPS不可用，已使用护林员默认位置';
-    },{enableHighAccuracy:true,timeout:8000,maximumAge:0});
-}
-
-function captureReportPhoto(){
-    document.getElementById('reportImage').click();
-}
-
-function previewReportPhoto(input){
-    const preview=document.getElementById('reportPhotoPreview');
-    if(input.files&&input.files[0]){
-        const reader=new FileReader();
-        reader.onload=e=>{preview.innerHTML='<img src="'+e.target.result+'" style="width:100%;max-height:200px;object-fit:cover;border-radius:8px;border:1px solid rgba(0,213,255,0.3)"/>'};
-        reader.readAsDataURL(input.files[0]);
-    }
-}
-
-async function submitReport(){
-    const status=document.getElementById('reportStatus');
-    const btn=document.getElementById('btnSubmitReport');
-    const lat=document.getElementById('reportLat').value;
-    const lng=document.getElementById('reportLng').value;
-
-    if(!lat||!lng){
-        status.style.color='#ff6b6b';
-        status.textContent='❌ 请先获取GPS坐标';
-        toast('请先点击定位按钮');
-        return;
-    }
-
-    btn.disabled=true;
-    btn.textContent='上报中...';
-    status.style.color='#ffab00';
-    status.textContent='正在上传...';
-
-    try{
-        const fd=new FormData();
-        const type=document.getElementById('reportType').value;
-        fd.append('type',type);
-        fd.append('name',document.getElementById('reportName').value||(type==='fire'?'火情':'疫情'));
-        fd.append('lat',lat);
-        fd.append('lng',lng);
-        // 上报人：当前选中的护林员
-        const reporter=currentRanger?currentRanger.name:'匿名护林员';
-        fd.append('reportedBy',reporter);
-        fd.append('description',document.getElementById('reportDesc').value||'');
-        if(type==='fire'){
-            fd.append('riskLevel',document.getElementById('reportRiskLevel').value);
-            fd.append('temperatureC',document.getElementById('reportTemp').value);
-            fd.append('areaMu',document.getElementById('reportArea').value);
-        }else{
-            fd.append('diseaseType',document.getElementById('reportDiseaseType').value);
-            fd.append('confidence',document.getElementById('reportConfidence').value);
-            fd.append('affectedAreaMu',document.getElementById('reportPestArea').value);
-        }
-        const imgInput=document.getElementById('reportImage');
-        if(imgInput.files[0])fd.append('image',imgInput.files[0]);
-
-        const res=await fetch(API+'/api/disasters/upload',{
-            method:'POST',
-            headers:{'Authorization':'Bearer '+token},
-            body:fd
-        });
-        const data=await res.json();
-        if(data.success){
-            status.style.color='#00e676';
-            status.textContent='✅ 上报成功！指挥中心已收到';
-            toast('✅ 上报成功');
-            addLog('🚨 上报'+(type==='fire'?'火情':'疫情')+': '+(document.getElementById('reportName').value||'未命名')+' @'+lat+','+lng);
-            // 清空表单
-            document.getElementById('reportName').value='';
-            document.getElementById('reportDesc').value='';
-            document.getElementById('reportPhotoPreview').innerHTML='';
-            imgInput.value='';
-            // 3秒后跳到地图tab看效果
-            setTimeout(()=>{switchTab('tab-map');status.textContent='';},3000);
-        }else{
-            throw new Error(data.error||'上报失败');
-        }
-    }catch(e){
-        status.style.color='#ff6b6b';
-        status.textContent='❌ 上报失败: '+e.message;
-        toast('上报失败');
-    }
-    btn.disabled=false;
-    btn.textContent='🚨 立即上报';
+function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    setTimeout(function () { t.style.display = 'none'; }, 2500);
 }
 
 // ========== 启动 ==========
-loadRangers(); initMap();
+loadRangers();
+initMap();
+loadAllTasks();
+// 定时轮询任务列表，保持与电脑端实时同步
+setInterval(async function() {
+    await loadAllTasks();
+    if(currentRanger) {
+        loadMyTasks();
+        // 如果有正在进行的任务，刷新地图状态
+        if(currentTask && currentTask.status === '进行中') {
+            var fresh = allTasks.find(function(x){return x.id === currentTask.id;});
+            if(fresh && fresh.status !== currentTask.status) {
+                currentTask = fresh;
+                drawRouteAndMap(currentTask);
+            }
+        }
+    }
+}, 15000);
 </script>
 </body>
 </html>

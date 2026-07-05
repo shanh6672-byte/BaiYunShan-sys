@@ -2,6 +2,7 @@
 import json
 import time
 import datetime
+import math
 import threading
 import queue
 import os
@@ -18,7 +19,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 from models import (db, User, Role, Permission, Ranger, Drone, PatrolTeam,
     RangerTrack, DroneTrack, PatrolTask, PatrolRoute, PatrolLog,
-    FireEvent, PestEvent, AbnormalEvent, AlertWarning, AiImage, SystemLog)
+    FireEvent, PestEvent, AbnormalEvent, AlertWarning, AiImage, SystemLog,
+    PatrolTrackPoint)
 
 # 加载林区巡护路线 + 边界约束（兼容旧版无此文件）
 try:
@@ -42,6 +44,14 @@ app.config.from_object(Config)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 jwt = JWTManager(app)
 db.init_app(app)
+
+# 注册巡护模块 Blueprint
+try:
+    from routes.patrol_routes import patrol_bp
+    app.register_blueprint(patrol_bp)
+    print('[Init] 巡护模块 Blueprint 已注册')
+except ImportError:
+    print('[Init] 巡护模块 Blueprint 未找到，跳过')
 
 # 前端原型目录（用于静态文件服务 + 灾害图片存储）
 PROTOTYPE_DIR = os.path.abspath(os.path.join(
@@ -252,6 +262,64 @@ def get_rangers_realtime():
     """护林员最新位置"""
     rangers = Ranger.query.filter_by(status='在线').all()
     return jsonify([r.to_dict() for r in rangers])
+
+
+# 移动端护林员同步接口
+@app.route('/api/patrol/rangers/<ranger_id>/online', methods=['PUT'])
+def ranger_go_online(ranger_id):
+    """移动端选择护林员后标记在线"""
+    try:
+        rid = int(ranger_id.replace('HL', '').lstrip('0') or '0')
+    except ValueError:
+        rid = 0
+    ranger = Ranger.query.get(rid)
+    if ranger:
+        ranger.status = '在线'
+        ranger.updated_at = datetime.datetime.now()
+        db.session.commit()
+        return jsonify({'success': True, 'name': ranger.name})
+    return jsonify({'success': False, 'error': 'Ranger not found'}), 404
+
+
+@app.route('/api/patrol/rangers/<ranger_id>/offline', methods=['PUT', 'POST'])
+def ranger_go_offline(ranger_id):
+    """移动端离开后标记待命"""
+    try:
+        rid = int(ranger_id.replace('HL', '').lstrip('0') or '0')
+    except ValueError:
+        rid = 0
+    ranger = Ranger.query.get(rid)
+    if ranger:
+        ranger.status = '待命'
+        ranger.speed_kmh = 0
+        ranger.updated_at = datetime.datetime.now()
+        db.session.commit()
+        return jsonify({'success': True, 'name': ranger.name})
+    return jsonify({'success': False, 'error': 'Ranger not found'}), 404
+
+
+@app.route('/api/patrol/rangers/<ranger_id>/position', methods=['PUT'])
+def ranger_update_position(ranger_id):
+    """轻量级位置同步（巡护中定期调用）"""
+    try:
+        rid = int(ranger_id.replace('HL', '').lstrip('0') or '0')
+    except ValueError:
+        rid = 0
+    data = request.get_json() or {}
+    lat = data.get('lat')
+    lng = data.get('lng')
+    ranger = Ranger.query.get(rid)
+    if ranger and lat is not None and lng is not None:
+        ranger.lat = float(lat)
+        ranger.lng = float(lng)
+        if data.get('speedKmh') is not None:
+            ranger.speed_kmh = float(data['speedKmh'])
+        if data.get('batteryPercent') is not None:
+            ranger.battery_percent = int(data['batteryPercent'])
+        ranger.updated_at = datetime.datetime.now()
+        db.session.commit()
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Invalid data'}), 400
 
 
 @app.route('/api/drones', methods=['GET'])
@@ -796,9 +864,17 @@ def upload_disaster():
         w = AlertWarning(type='火情', level=event.risk_level, description=event.name or '火情',
                          related_event_id=event.to_dict().get('id'), created_at=now_str)
         db.session.add(w)
+        # 创建异常事件（在驾驶舱灾害态势总览中展示）
+        ae = AbnormalEvent(
+            type='fire', area='', desc=event.description or event.name, level=event.risk_level,
+            time=now_str, status='处置中', source=data.get('reportedBy', ''), measure='',
+            lat=lat, lng=lng
+        )
+        db.session.add(ae)
         db.session.commit()
         # SSE 推送
         broadcast_sse('fire_new', event.to_dict())
+        broadcast_sse('abnormal_new', ae.to_dict())
         return jsonify({'success': True, 'data': event.to_dict()})
     else:
         event = PestEvent(
@@ -815,7 +891,16 @@ def upload_disaster():
         db.session.add(event)
         db.session.commit()
         _sync_disasters_to_geoserver()
+        # 创建异常事件
+        ae = AbnormalEvent(
+            type='pest', area='', desc=event.description or event.name, level='中',
+            time=now_str, status='处置中', source=data.get('reportedBy', ''), measure='',
+            lat=lat, lng=lng
+        )
+        db.session.add(ae)
+        db.session.commit()
         broadcast_sse('pest_new', event.to_dict())
+        broadcast_sse('abnormal_new', ae.to_dict())
         return jsonify({'success': True, 'data': event.to_dict()})
 
 
@@ -2353,16 +2438,211 @@ def serve_mobile():
     resp.headers['Cache-Control'] = 'no-cache'
     return resp
 
+
+
+# ========== 巡护模块扩展端点 ==========
+
+# 区域定义（路线自动生成用）
+_PATROL_AREAS = [
+    [28.5331, 119.9127, 0.0485, 0.0376, '一号林区'],
+    [28.5538, 119.9323, 0.0401, 0.0538, '二号林区'],
+    [28.5044, 119.9439, 0.0414, 0.0454, '三号林区'],
+    [28.5140, 119.8721, 0.0389, 0.0394, '四号林区'],
+    [28.4928, 119.9053, 0.0377, 0.0323, '五号林区'],
+]
+
+@app.route('/api/patrol/track-points/batch', methods=['POST'])
+def save_track_points_batch():
+    data = request.get_json()
+    if not data or 'points' not in data:
+        return jsonify({'success': False, 'error': 'missing points'}), 400
+    import datetime as dt
+    session_id = data.get('sessionId', dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d%H%M%S'))
+    pts = data['points']
+    saved = 0
+    for p in pts:
+        if not p.get('lat') or not p.get('lng'):
+            continue
+        tp = PatrolTrackPoint(
+            entity_id=p.get('entityId', ''), entity_type=p.get('entityType', 'ranger'),
+            entity_name=p.get('entityName', ''), lat=p['lat'], lng=p['lng'],
+            speed=p.get('speed', 0), battery=p.get('battery', 100),
+            heading=p.get('heading', 0), session_id=session_id,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+        )
+        db.session.add(tp)
+        saved += 1
+    db.session.commit()
+    return jsonify({'success': True, 'saved': saved})
+
+@app.route('/api/patrol/track-points', methods=['GET'])
+def query_track_points():
+    import datetime as dt
+    entity_id = request.args.get('entityId', '').strip()
+    entity_type = request.args.get('entityType', '').strip()
+    session_id = request.args.get('sessionId', '').strip()
+    start_str = request.args.get('start', '').strip()
+    end_str = request.args.get('end', '').strip()
+    q = PatrolTrackPoint.query
+    if entity_id: q = q.filter(PatrolTrackPoint.entity_id == entity_id)
+    if entity_type: q = q.filter(PatrolTrackPoint.entity_type == entity_type)
+    if session_id: q = q.filter(PatrolTrackPoint.session_id == session_id)
+    if start_str:
+        try:
+            st = dt.datetime.strptime(start_str, '%Y-%m-%d').replace(tzinfo=dt.timezone.utc)
+            q = q.filter(PatrolTrackPoint.timestamp >= st)
+        except ValueError: pass
+    if end_str:
+        try:
+            et = dt.datetime.strptime(end_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, tzinfo=dt.timezone.utc)
+            q = q.filter(PatrolTrackPoint.timestamp <= et)
+        except ValueError: pass
+    points = q.order_by(PatrolTrackPoint.timestamp.asc()).limit(10000).all()
+    return jsonify({'success': True, 'data': [p.to_dict() for p in points], 'total': len(points)})
+
+@app.route('/api/patrol/track-sessions', methods=['GET'])
+def list_track_sessions():
+    entity_id = request.args.get('entityId', '').strip()
+    if not entity_id:
+        return jsonify({'success': False, 'error': 'missing entityId'}), 400
+    rows = db.session.query(
+        PatrolTrackPoint.session_id, PatrolTrackPoint.entity_name, PatrolTrackPoint.entity_type,
+        db.func.count(PatrolTrackPoint.id).label('point_count'),
+        db.func.min(PatrolTrackPoint.timestamp).label('start_time'),
+        db.func.max(PatrolTrackPoint.timestamp).label('end_time'),
+    ).filter(PatrolTrackPoint.entity_id == entity_id).group_by(
+        PatrolTrackPoint.session_id
+    ).order_by(db.func.min(PatrolTrackPoint.timestamp).desc()).all()
+    result = []
+    for i, row in enumerate(rows):
+        result.append({
+            'sessionId': row.session_id,
+            'name': (row.entity_name or entity_id) + ' patrol #' + str(i + 1),
+            'entityName': row.entity_name or entity_id, 'entityType': row.entity_type,
+            'pointCount': row.point_count,
+            'startTime': row.start_time.strftime('%Y-%m-%d %H:%M:%S') if row.start_time else '',
+            'endTime': row.end_time.strftime('%Y-%m-%d %H:%M:%S') if row.end_time else '',
+        })
+    return jsonify({'success': True, 'data': result})
+
+@app.route('/api/patrol/track-entities', methods=['GET'])
+def list_track_entities():
+    q = PatrolTrackPoint.query
+    entity_type = request.args.get('entityType', '').strip()
+    if entity_type: q = q.filter(PatrolTrackPoint.entity_type == entity_type)
+    rows = q.with_entities(
+        PatrolTrackPoint.entity_id, PatrolTrackPoint.entity_type, PatrolTrackPoint.entity_name,
+        db.func.count(PatrolTrackPoint.id).label('count'),
+        db.func.max(PatrolTrackPoint.timestamp).label('last_time'),
+    ).group_by(PatrolTrackPoint.entity_id, PatrolTrackPoint.entity_type, PatrolTrackPoint.entity_name
+    ).order_by(db.func.max(PatrolTrackPoint.timestamp).desc()).all()
+    result = []
+    for row in rows:
+        result.append({
+            'entityId': row.entity_id, 'entityType': row.entity_type,
+            'entityName': row.entity_name, 'pointCount': row.count,
+            'lastTime': row.last_time.strftime('%Y-%m-%d %H:%M:%S') if row.last_time else '',
+        })
+    return jsonify({'success': True, 'data': result})
+
+@app.route('/api/patrol/tasks/<int:id>/dispatch', methods=['POST'])
+@jwt_required()
+def dispatch_patrol_task(id):
+    task = PatrolTask.query.get_or_404(id)
+    task.status = '待执行'
+    db.session.commit()
+    broadcast_sse('task_dispatched', task.to_dict())
+    return jsonify({'success': True, 'message': 'task dispatched', 'data': task.to_dict()})
+
+@app.route('/api/patrol/routes/plan', methods=['POST'])
+@jwt_required()
+def plan_patrol_route():
+    data = request.get_json() or {}
+    name = data.get('name', 'unnamed')
+    route_type = data.get('type', 'hiking')
+    waypoints = data.get('waypoints', [])
+    geometry = data.get('geometry', '')
+    if waypoints and not geometry:
+        coords = [[p[1], p[0]] for p in waypoints]
+        geometry = json.dumps({'type': 'LineString', 'coordinates': coords})
+    length_km = 0
+    try:
+        coords = json.loads(geometry).get('coordinates', [])
+        for i in range(1, len(coords)):
+            dy = (coords[i][1] - coords[i-1][1]) * 111320
+            dx = (coords[i][0] - coords[i-1][0]) * 111320 * math.cos(math.radians(coords[i][1]))
+            length_km += math.sqrt(dx*dx + dy*dy)
+        length_km = round(length_km / 1000, 2)
+    except Exception: pass
+    route = PatrolRoute(name=name, route_type=route_type, length_km=length_km,
+                        status='启用', creator=data.get('creator', 'admin'), geometry_json=geometry)
+    db.session.add(route)
+    db.session.commit()
+    d = route.to_dict()
+    geo_coords = json.loads(geometry).get('coordinates', []) if geometry else []
+    d['waypoints'] = [[c[1], c[0]] for c in geo_coords] if geo_coords else []
+    d['lengthKm'] = length_km
+    return jsonify({'success': True, 'data': d})
+
+@app.route('/api/patrol/routes/auto-generate', methods=['POST'])
+@jwt_required()
+def auto_generate_patrol_route():
+    data = request.get_json() or {}
+    area_name = data.get('area', '')
+    mode = data.get('mode', 'coverage')
+    name = data.get('name', f'{area_name}-auto')
+    area_info = None
+    for a in _PATROL_AREAS:
+        if area_name in a[4]: area_info = a; break
+    if not area_info:
+        return jsonify({'success': False, 'error': f'area not found: {area_name}'}), 404
+    cy, cx, w, h, _ = area_info
+    if mode == 'coverage':
+        rows = 6; waypoints = []
+        for p in range(rows):
+            y0 = cy - h/2 + (h / rows) * (p + 0.3)
+            y1 = cy - h/2 + (h / rows) * (p + 0.7)
+            for i in range(8):
+                t = i / 7
+                x = cx - w/2 + w * 0.08 + (w * 0.84) * t if p % 2 == 0 else cx + w/2 - w * 0.08 - (w * 0.84) * t
+                y = y0 + (y1 - y0) * t
+                waypoints.append([round(y, 6), round(x, 6)])
+            if p < rows - 1:
+                tx = cx + w/2 - w * 0.08 if p % 2 == 0 else cx - w/2 + w * 0.08
+                for u in range(4):
+                    ut = u / 3.0
+                    waypoints.append([round(y1 + (cy - h/2 + (h/rows)*(p+1) + h/rows*0.3 - y1)*ut, 6),
+                                      round(tx + (0.001 if p%2==0 else -0.001)*math.sin(ut*math.pi), 6)])
+        coords = [[p[1], p[0]] for p in waypoints]
+    else:
+        waypoints = []
+        for i in range(20):
+            angle = i * 0.7; r = (i / 20.0) * min(w, h) * 0.7
+            waypoints.append([round(cy + r * math.cos(angle), 6), round(cx + r * math.sin(angle), 6)])
+        coords = [[p[1], p[0]] for p in waypoints]
+    geometry = json.dumps({'type': 'LineString', 'coordinates': coords})
+    length_km = 0
+    for i in range(1, len(coords)):
+        dy = (coords[i][1] - coords[i-1][1]) * 111320
+        dx = (coords[i][0] - coords[i-1][0]) * 111320 * math.cos(math.radians(coords[i][1]))
+        length_km += math.sqrt(dx*dx + dy*dy)
+    length_km = round(length_km / 1000, 2)
+    route = PatrolRoute(name=name, route_type='auto', length_km=length_km,
+                        status='启用', creator=data.get('creator', 'admin'), geometry_json=geometry)
+    db.session.add(route)
+    db.session.commit()
+    d = route.to_dict()
+    d['waypoints'] = [[c[1], c[0]] for c in coords]
+    d['lengthKm'] = length_km
+    return jsonify({'success': True, 'data': d})
+
+# Serve non-API static files & SPA fallback (only GET — won't conflict with POST API routes)
 @app.route('/<path:filename>')
-def serve_static(filename):
-    """Serve prototype files"""
-    if filename.startswith('api/'):
-        return jsonify({'error': 'Not found'}), 404
+def serve_static_proto(filename):
     filepath = os.path.join(PROTOTYPE_DIR, filename)
     if os.path.isfile(filepath):
         return flask.send_file(filepath)
     return flask.send_file(os.path.join(PROTOTYPE_DIR, 'index.html'))
-
 
 # ========== 启动 ==========
 

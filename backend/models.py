@@ -478,3 +478,35 @@ class SystemLog(db.Model):
             'module': self.module,
             'ip': self.ip,
         }
+
+
+# ========== 巡护轨迹点（模拟+真实） ==========
+
+class PatrolTrackPoint(db.Model):
+    __tablename__ = 'patrol_track_points'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    entity_id = db.Column(db.String(50), nullable=False, index=True)
+    entity_type = db.Column(db.String(20), default='ranger')
+    entity_name = db.Column(db.String(50), default='')
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    speed = db.Column(db.Float, default=0)
+    battery = db.Column(db.Float, default=100)
+    heading = db.Column(db.Float, default=0)
+    session_id = db.Column(db.String(50), default='', index=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'entityId': self.entity_id,
+            'entityType': self.entity_type,
+            'entityName': self.entity_name,
+            'lat': self.lat,
+            'lng': self.lng,
+            'speed': self.speed,
+            'battery': self.battery,
+            'heading': self.heading,
+            'sessionId': self.session_id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%dT%H:%M:%S') if self.timestamp else '',
+        }
