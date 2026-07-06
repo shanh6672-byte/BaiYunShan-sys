@@ -9,10 +9,11 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = 86400  # 24小时
 
     # PostgreSQL + PostGIS 数据库
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        'DATABASE_URL',
-        'postgresql://postgres:root@localhost:5432/baiyunshan'
-    )
+    _db_url = os.environ.get('DATABASE_URL', 'postgresql://postgres:root@localhost:5432/baiyunshan')
+    # Render 等平台使用 postgres:// 前缀，SQLAlchemy 1.4+ 要求 postgresql://
+    if _db_url and _db_url.startswith('postgres://'):
+        _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+    SQLALCHEMY_DATABASE_URI = _db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # GeoServer 配置
