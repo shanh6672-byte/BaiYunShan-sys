@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pandoc --version)",
+      "Bash(winget install *)",
+      "Bash(choco install *)"
+    ]
+  }
+}
