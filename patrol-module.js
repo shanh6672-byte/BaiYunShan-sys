@@ -651,6 +651,14 @@ var Patrol = {
             if (dashRanger) dashRanger.textContent = on;
             var dashPatrol = document.getElementById('dashPatrolCount');
             if (dashPatrol) dashPatrol.textContent = Object.keys(self.state.rangers).length;
+            // 模拟巡护里程/时长/任务数
+            var distEl = document.getElementById('dashPatrolDistance');
+            if (distEl) distEl.textContent = '136.8';
+            var durEl = document.getElementById('dashPatrolDuration');
+            if (durEl) durEl.textContent = '48.5';
+            // 任务数 = 实际任务列表数量
+            var taskEl = document.getElementById('dashTaskCount');
+            if (taskEl) taskEl.textContent = self.state.tasks ? self.state.tasks.length : 0;
         }
 
         // 无人机列表 — 同理全量重建
