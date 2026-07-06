@@ -106,11 +106,11 @@
                     <input type="range" min="0" max="100" value="60" data-layer="subCompartments" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
-                    <label class="layer-label"><input type="checkbox" data-layer="rangers"/> 护林员位置</label>
+                    <label class="layer-label"><input type="checkbox" checked data-layer="rangers"/> 护林员位置</label>
                     <input type="range" min="0" max="100" value="100" data-layer="rangers" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
-                    <label class="layer-label"><input type="checkbox" data-layer="drones"/> 无人机位置</label>
+                    <label class="layer-label"><input type="checkbox" checked data-layer="drones"/> 无人机位置</label>
                     <input type="range" min="0" max="100" value="100" data-layer="drones" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
@@ -137,11 +137,8 @@
                 <div class="layer-group-title">影像底图</div>
                 <div class="form-group" style="margin-bottom:0">
                     <select class="select-full" id="basemapSelect">
-                        <option>CartoDB底色</option>
-                        <option>高德地图</option>
-                        <option>天地图影像</option>
-                        <option>GF-2 卫星影像 (WMS)</option>
-                        <option>无人机正射影像 (WMTS)</option>
+                        <option selected>OpenStreetMap</option>
+                        <option>高德影像</option>
                     </select>
                 </div>
             </div>
@@ -225,13 +222,7 @@
             </div>
             <div class="panel-section">
                 <div class="section-title">在线巡护人员</div>
-                <div class="person-list">
-                    <div class="person-item"><div class="person-avatar ranger">张</div><div class="person-info"><div class="person-name">张建国</div><div class="person-status">一号林区 · HL001</div></div><span class="status-online">在线</span></div>
-                    <div class="person-item"><div class="person-avatar ranger">李</div><div class="person-info"><div class="person-name">李明辉</div><div class="person-status">一号林区 · HL002</div></div><span class="status-online">在线</span></div>
-                    <div class="person-item"><div class="person-avatar ranger">王</div><div class="person-info"><div class="person-name">王大山</div><div class="person-status">二号林区 · HL003</div></div><span class="status-online">在线</span></div>
-                    <div class="person-item"><div class="person-avatar drone">U</div><div class="person-info"><div class="person-name">UAV-01</div><div class="person-status">大疆M300 · 高度120m</div></div><span class="status-patrol">巡航中</span></div>
-                    <div class="person-item"><div class="person-avatar drone">U</div><div class="person-info"><div class="person-name">UAV-02</div><div class="person-status">大疆M300 · 高度100m</div></div><span class="status-patrol">巡航中</span></div>
-                </div>
+                <div class="person-list" id="dashPersonnelList"></div>
             </div>
         </div>
         <button class="float-panel-toggle left-toggle" data-target="dashLeftPanel">◀</button>
@@ -287,19 +278,10 @@
 
                 <div class="float-panel wide" id="realtimePanel">
                     <div class="inner-tab active" id="inner-ranger-rt">
-                        <div class="panel-card"><div class="card-header"><h3>护林员实时状态</h3></div><div class="card-body"><div class="rt-person-list">
-                            <div class="rt-person-item"><div class="rt-avatar green">张</div><div class="rt-info"><div class="rt-name">张建国 <span class="tag tag-green tag-sm">在线</span></div><div class="rt-detail">一号林区 · 速度2.3km/h · 电量78%</div></div><button class="btn btn-sm btn-outline">轨迹</button></div>
-                            <div class="rt-person-item"><div class="rt-avatar green">李</div><div class="rt-info"><div class="rt-name">李明辉 <span class="tag tag-green tag-sm">在线</span></div><div class="rt-detail">一号林区 · 速度1.8km/h · 电量65%</div></div><button class="btn btn-sm btn-outline">轨迹</button></div>
-                            <div class="rt-person-item"><div class="rt-avatar green">王</div><div class="rt-info"><div class="rt-name">王大山 <span class="tag tag-green tag-sm">在线</span></div><div class="rt-detail">二号林区 · 速度3.1km/h · 电量42%</div></div><button class="btn btn-sm btn-outline">轨迹</button></div>
-                            <div class="rt-person-item"><div class="rt-avatar gray">陈</div><div class="rt-info"><div class="rt-name">陈志强 <span class="tag tag-gray tag-sm">离线</span></div><div class="rt-detail">二号林区 · 最后在线 15:30</div></div><button class="btn btn-sm btn-outline">轨迹</button></div>
-                        </div></div></div>
+                        <div class="panel-card"><div class="card-header"><h3>护林员实时状态 <span class="tag tag-green tag-sm" id="rangerOnlineCount">加载中...</span></h3></div><div class="card-body"><div class="rt-person-list" id="rangerList"></div></div></div>
                     </div>
                     <div class="inner-tab" id="inner-drone-rt">
-                        <div class="panel-card"><div class="card-header"><h3>无人机实时状态</h3></div><div class="card-body"><div class="rt-person-list">
-                            <div class="rt-person-item"><div class="rt-avatar blue">U1</div><div class="rt-info"><div class="rt-name">UAV-01 <span class="tag tag-blue tag-sm">巡航中</span></div><div class="rt-detail">高度120m · 航向NE · 电量85%</div></div><button class="btn btn-sm btn-outline">航线</button></div>
-                            <div class="rt-person-item"><div class="rt-avatar blue">U2</div><div class="rt-info"><div class="rt-name">UAV-02 <span class="tag tag-blue tag-sm">巡航中</span></div><div class="rt-detail">高度100m · 航向SW · 电量52%</div></div><button class="btn btn-sm btn-outline">航线</button></div>
-                            <div class="rt-person-item"><div class="rt-avatar blue">U3</div><div class="rt-info"><div class="rt-name">UAV-03 <span class="tag tag-blue tag-sm">巡航中</span></div><div class="rt-detail">高度150m · 航向E · 电量92%</div></div><button class="btn btn-sm btn-outline">航线</button></div>
-                        </div></div></div>
+                        <div class="panel-card"><div class="card-header"><h3>无人机实时状态 <span class="tag tag-blue tag-sm" id="droneOnlineCount">加载中...</span></h3></div><div class="card-body"><div class="rt-person-list" id="droneList"></div></div></div>
                     </div>
                     <div class="inner-tab" id="inner-history">
                         <div class="panel-card"><div class="card-header"><h3>历史轨迹回放</h3></div><div class="card-body">

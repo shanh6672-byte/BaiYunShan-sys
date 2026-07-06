@@ -506,6 +506,16 @@ var Patrol = {
                 entity.lat = lat;
                 entity.lng = lng;
                 entity.heading = heading;
+                // 实时更新显示速度和电量（护林员约4-5km/h，无人机约25-35km/h）
+                if (isRanger) {
+                    entity.speed = parseFloat((0.8 + Math.sin(prog * 0.7 + (parseInt(id.slice(2)) || 0)) * 0.3 + Math.random() * 0.15).toFixed(2));
+                    entity.battery = parseFloat(Math.max(5, (entity.battery || 100) - 0.002).toFixed(1));
+                    entity.status = '在线';
+                } else {
+                    entity.speed = parseFloat((8 + Math.sin(prog * 0.5) * 2 + Math.random() * 0.5).toFixed(1));
+                    entity.battery = parseFloat(Math.max(5, (entity.battery || 100) - 0.003).toFixed(1));
+                    entity.status = '巡航中';
+                }
 
                 self._placeMarker(id, isRanger ? 'ranger' : 'drone');
             });
@@ -610,63 +620,85 @@ var Patrol = {
 
     // ==================== UI — 实时监控面板 ====================
     _refreshMonitorList: function (initMode) {
+        var self = this;
+        // 护林员列表 — 每次全量重建，确保状态/速度/电量与模拟一致
         var rl = document.getElementById('rangerList');
         if (rl) {
-            var self = this;
-            // 首次渲染：创建静态 HTML（之后只更新数值，不重建 DOM）
-            if (initMode || !rl.children.length) {
-                var h = '', on = 0;
-                var ids = Object.keys(this.state.rangers).sort(function (a, b) { return (self.state.rangers[a].status === '在线' ? 0 : 1) - (self.state.rangers[b].status === '在线' ? 0 : 1); });
-                ids.forEach(function (id) {
-                    var r = self.state.rangers[id]; if (r.status === '在线') on++;
-                    var autoTag = self._AUTO_RANGERS.indexOf(id) !== -1 ? ' <span style="font-size:9px;color:#fdd835;">[模拟]</span>' : '';
-                    var locBtn = r.status === '在线' ? '<button class="btn btn-sm btn-outline" onclick="Patrol._locateEntity(\'' + id + '\',\'ranger\')" style="font-size:10px;padding:2px 5px;">📍</button>' : '';
-                    h += '<div class="rt-person-item" data-rid="' + id + '"><div class="rt-avatar ' + (r.status === '在线' ? 'green' : 'gray') + '">' + r.name.charAt(0) + '</div><div class="rt-info"><div class="rt-name">' + r.name + autoTag + ' <span class="tag ' + (r.status === '在线' ? 'tag-green' : 'tag-gray') + ' tag-sm">' + r.status + '</span></div><div class="rt-detail">' + (r.area || '') + (r.status === '在线' ? ' <span class="r-speed">' + (r.speed || 0).toFixed(1) + 'm/s</span> <span class="r-batt">' + (r.battery || 0).toFixed(0) + '%</span>' : '') + '</div></div>' + locBtn + '</div>';
-                });
-                rl.innerHTML = h;
-            } else {
-                // 增量更新：只改速度/电量文字
-                var on = 0;
-                Object.keys(this.state.rangers).forEach(function (id) {
-                    var r = self.state.rangers[id];
-                    if (r.status === '在线') on++;
-                    var item = rl.querySelector('[data-rid="' + id + '"]');
-                    if (!item) return;
-                    var spd = item.querySelector('.r-speed');
-                    if (spd) spd.textContent = (r.speed || 0).toFixed(1) + 'm/s';
-                    var bat = item.querySelector('.r-batt');
-                    if (bat) bat.textContent = (r.battery || 0).toFixed(0) + '%';
-                });
-                var c = document.getElementById('rangerOnlineCount');
-                if (c) c.textContent = on + '人在线';
-            }
+            var on = 0;
+            var ids = Object.keys(this.state.rangers).sort(function (a, b) {
+                return (self.state.rangers[a].status === '在线' ? 0 : 1) - (self.state.rangers[b].status === '在线' ? 0 : 1);
+            });
+            var h = '';
+            ids.forEach(function (id) {
+                var r = self.state.rangers[id];
+                var isAuto = self._AUTO_RANGERS.indexOf(id) !== -1;
+                // 自动模拟的护林员：始终在线（只要动画在跑）
+                var isOnline = isAuto || r.status === '在线';
+                if (isOnline) on++;
+                var autoTag = isAuto ? ' <span style="font-size:9px;color:#fdd835;">[模拟]</span>' : '';
+                var spd = (r.speed || 0);
+                var bat = (r.battery || 0);
+                var spdText = isOnline ? (' <span class="r-speed">' + spd.toFixed(1) + 'm/s</span>') : '';
+                var batText = isOnline ? (' <span class="r-batt">' + bat.toFixed(0) + '%</span>') : '';
+                var locBtn = isOnline ? '<button class="btn btn-sm btn-outline" onclick="Patrol._locateEntity(\'' + id + '\',\'ranger\')" style="font-size:10px;padding:2px 5px;">📍</button>' : '';
+                h += '<div class="rt-person-item" data-rid="' + id + '"><div class="rt-avatar ' + (isOnline ? 'green' : 'gray') + '">' + r.name.charAt(0) + '</div><div class="rt-info"><div class="rt-name">' + r.name + autoTag + ' <span class="tag ' + (isOnline ? 'tag-green' : 'tag-gray') + ' tag-sm">' + (isOnline ? '在线' : '待命') + '</span></div><div class="rt-detail">' + (r.area || '') + spdText + batText + '</div></div>' + locBtn + '</div>';
+            });
+            rl.innerHTML = h;
+            var rc = document.getElementById('rangerOnlineCount');
+            if (rc) rc.textContent = on + '人在线';
+            // 同步更新综合驾驶舱的在线护林员数量
+            var dashRanger = document.getElementById('dashOnlineRangers');
+            if (dashRanger) dashRanger.textContent = on;
+            var dashPatrol = document.getElementById('dashPatrolCount');
+            if (dashPatrol) dashPatrol.textContent = Object.keys(self.state.rangers).length;
         }
+
+        // 无人机列表 — 同理全量重建
         var dl = document.getElementById('droneList');
         if (dl) {
-            var self = this;
-            if (initMode || !dl.children.length) {
-                var dh = '', da = 0;
-                Object.keys(this.state.drones).forEach(function (id) {
-                    var d = self.state.drones[id]; if (d.status === '巡航中') da++;
-                    var autoTag = self._AUTO_DRONES.indexOf(id) !== -1 ? ' <span style="font-size:9px;color:#448aff;">[模拟]</span>' : '';
-                    dh += '<div class="rt-person-item" data-did="' + id + '"><div class="rt-avatar blue">' + id.slice(-2) + '</div><div class="rt-info"><div class="rt-name">' + id + autoTag + ' <span class="tag ' + (d.status === '巡航中' ? 'tag-blue' : 'tag-gray') + ' tag-sm">' + d.status + '</span></div><div class="rt-detail">' + d.model + ' <span class="d-batt">' + (d.battery || 0).toFixed(0) + '%</span> <span class="d-alt">' + (d.alt || 0) + 'm</span></div></div>' + (d.status === '巡航中' ? '<button class="btn btn-sm btn-outline" onclick="Patrol._locateEntity(\'' + id + '\',\'drone\')" style="font-size:10px;padding:2px 5px;">📍</button>' : '') + '</div>';
-                });
-                dl.innerHTML = dh;
-            } else {
-                var da = 0;
-                Object.keys(this.state.drones).forEach(function (id) {
-                    var d = self.state.drones[id];
-                    if (d.status === '巡航中') da++;
-                    var item = dl.querySelector('[data-did="' + id + '"]');
-                    if (!item) return;
-                    var bat = item.querySelector('.d-batt');
-                    if (bat) bat.textContent = (d.battery || 0).toFixed(0) + '%';
-                    var alt = item.querySelector('.d-alt');
-                    if (alt) alt.textContent = (d.alt || 0) + 'm';
-                });
-                var dc = document.getElementById('droneOnlineCount');
-                if (dc) dc.textContent = da + '架巡航中';
-            }
+            var da = 0;
+            var dh = '';
+            Object.keys(this.state.drones).forEach(function (id) {
+                var d = self.state.drones[id];
+                var isAuto = self._AUTO_DRONES.indexOf(id) !== -1;
+                var isActive = isAuto || d.status === '巡航中';
+                if (isActive) da++;
+                var autoTag = isAuto ? ' <span style="font-size:9px;color:#448aff;">[模拟]</span>' : '';
+                var batText = isActive ? (' <span class="d-batt">' + (d.battery || 0).toFixed(0) + '%</span>') : '';
+                var altText = isActive ? (' <span class="d-alt">' + (d.alt || 100 + Math.floor(Math.random()*50)) + 'm</span>') : '';
+                var locBtn = isActive ? '<button class="btn btn-sm btn-outline" onclick="Patrol._locateEntity(\'' + id + '\',\'drone\')" style="font-size:10px;padding:2px 5px;">📍</button>' : '';
+                dh += '<div class="rt-person-item" data-did="' + id + '"><div class="rt-avatar blue">' + id.slice(-2) + '</div><div class="rt-info"><div class="rt-name">' + id + autoTag + ' <span class="tag ' + (isActive ? 'tag-blue' : 'tag-gray') + ' tag-sm">' + (isActive ? '巡航中' : '待命') + '</span></div><div class="rt-detail">' + d.model + batText + altText + '</div></div>' + locBtn + '</div>';
+            });
+            dl.innerHTML = dh;
+            var dc = document.getElementById('droneOnlineCount');
+            if (dc) dc.textContent = da + '架巡航中';
+            // 同步更新综合驾驶舱的在线无人机数量
+            var dashDrone = document.getElementById('dashOnlineDrones');
+            if (dashDrone) dashDrone.textContent = da;
+        }
+
+        // 同步更新综合驾驶舱「在线巡护人员」板块
+        var dashList = document.getElementById('dashPersonnelList') || document.querySelector('#dashLeftPanel .person-list');
+        if (dashList) {
+            var ph = '';
+            // 护林员：按在线状态排序
+            var rids = Object.keys(self.state.rangers).sort(function (a, b) {
+                return (self.state.rangers[a].status === '在线' ? 0 : 1) - (self.state.rangers[b].status === '在线' ? 0 : 1);
+            });
+            rids.forEach(function (id) {
+                var r = self.state.rangers[id];
+                var isAuto = self._AUTO_RANGERS.indexOf(id) !== -1;
+                var isOnline = isAuto || r.status === '在线';
+                ph += '<div class="person-item"><div class="person-avatar ranger">' + r.name.charAt(0) + '</div><div class="person-info"><div class="person-name">' + r.name + '</div><div class="person-status">' + (r.area || '') + ' · ' + id + (isAuto ? ' [模拟]' : '') + '</div></div><span class="' + (isOnline ? 'status-online' : 'status-offline') + '">' + (isOnline ? '在线' : '待命') + '</span></div>';
+            });
+            // 无人机
+            Object.keys(self.state.drones).forEach(function (id) {
+                var d = self.state.drones[id];
+                var isAuto = self._AUTO_DRONES.indexOf(id) !== -1;
+                var isActive = isAuto || d.status === '巡航中';
+                ph += '<div class="person-item"><div class="person-avatar drone">U</div><div class="person-info"><div class="person-name">' + id + '</div><div class="person-status">' + (d.model || '') + (isAuto ? ' [模拟]' : '') + '</div></div><span class="' + (isActive ? 'status-patrol' : 'status-offline') + '">' + (isActive ? '巡航中' : '待命') + '</span></div>';
+            });
+            dashList.innerHTML = ph;
         }
     },
 
@@ -1269,16 +1301,20 @@ var Patrol = {
             var prog = t.progress || 0;
             var canDel = (st === '草稿' || st === '待执行');
             var canDispatch = st === '草稿';
-            var canStart = st === '待执行';
             var canComplete = st === '进行中';
             var actions = '';
             if(canDispatch) actions += '<a class="link-btn patrol-dispatch-task" data-id="' + t.id + '" style="color:var(--accent-green);">派发</a> ';
-            if(canStart) actions += '<a class="link-btn patrol-start-task" data-id="' + t.id + '" style="color:var(--accent-green);">▶ 开始</a> ';
             if(canComplete) actions += '<a class="link-btn patrol-complete-task" data-id="' + t.id + '" style="color:var(--accent-blue);">✓ 完成</a> ';
             actions += '<a class="link-btn patrol-view-task" data-id="' + t.id + '" style="color:var(--accent-blue);">查看</a> ';
             if(canDel) actions += '<a class="link-btn patrol-del-task" data-id="' + t.id + '" style="color:var(--accent-red);">删除</a>';
+            // 执行人：优先显示名称，其次从rangers池解析HL编号
+            var executor = t.rangerName || (t.members_names && t.members_names[0]) || '-';
+            if (executor === '-' && t.members && t.members[0]) {
+                var mid = t.members[0];
+                executor = (self.state.rangers && self.state.rangers[mid]) ? self.state.rangers[mid].name : mid;
+            }
             r += '<tr><td style="font-size:11px;">' + (t.taskNumber||t.id) + '</td><td>' + t.name + '</td><td>' + (t.type||'-') + '</td>' +
-                 '<td>' + (t.rangerName || (t.members_names && t.members_names[0]) || (t.members && t.members[0]) || '-') + '</td>' +
+                 '<td>' + executor + '</td>' +
                  '<td><div style="width:60px;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;display:inline-block;vertical-align:middle;"><div style="width:' + prog + '%;height:100%;background:var(--accent-blue);border-radius:3px;"></div></div> ' + prog + '%</td>' +
                  '<td><span class="tag ' + tc + ' tag-sm">' + st + '</span></td><td>' + actions + '</td></tr>';
         });
@@ -1288,7 +1324,6 @@ var Patrol = {
         c.appendChild(w);
         document.getElementById('btnRefreshPatrolTasks').onclick = async function () { await self._loadTasks(); self._renderTaskList(); };
         w.querySelectorAll('.patrol-dispatch-task').forEach(function (b) { b.onclick = function () { self._dispatchTask(b.dataset.id); }; });
-        w.querySelectorAll('.patrol-start-task').forEach(function (b) { b.onclick = async function () { try { var rs = await fetch('/api/patrol-tasks/' + b.dataset.id, { method: 'PUT', headers: self._authHeaders(), body: JSON.stringify({status:'进行中'}) }); var js = await rs.json(); if(!js.success) { alert(js.error||'开始失败'); return; } await self._loadTasks(); self._renderTaskList(); } catch(e) { alert('网络错误'); } }; });
         w.querySelectorAll('.patrol-complete-task').forEach(function (b) { b.onclick = async function () { try { var rs = await fetch('/api/patrol-tasks/' + b.dataset.id, { method: 'PUT', headers: self._authHeaders(), body: JSON.stringify({status:'已完成', progress:100}) }); var js = await rs.json(); if(!js.success) { alert(js.error||'完成失败'); return; } await self._loadTasks(); self._renderTaskList(); } catch(e) { alert('网络错误'); } }; });
         w.querySelectorAll('.patrol-view-task').forEach(function (b) { b.onclick = function () { self._viewTask(b.dataset.id); }; });
         w.querySelectorAll('.patrol-del-task').forEach(function (b) { b.onclick = async function () { if (!confirm('确定删除此任务？')) return; try { var rs = await fetch('/api/patrol-tasks/' + b.dataset.id, { method: 'DELETE', headers: self._authHeaders() }); var js = await rs.json(); if(!js.success) { alert(js.error||'删除失败'); return; } } catch(e){} await self._loadTasks(); self._renderTaskList(); }; });
@@ -1913,16 +1948,38 @@ var Patrol = {
     },
 
     _renderRealtimePanels: function () {
-        var self = this;
-        var rr = document.getElementById('inner-ranger-rt');
-        if (rr && !document.getElementById('rangerList')) {
-            rr.innerHTML = '<div class="panel-card"><div class="card-header"><h3>护林员实时状态 <span class="tag tag-green tag-sm" id="rangerOnlineCount">0人在线</span></h3></div><div class="card-body"><div class="rt-person-list" id="rangerList"></div></div></div>';
-        }
-        var dr = document.getElementById('inner-drone-rt');
-        if (dr && !document.getElementById('droneList')) {
-            dr.innerHTML = '<div class="panel-card"><div class="card-header"><h3>无人机实时状态 <span class="tag tag-blue tag-sm" id="droneOnlineCount">0架巡航中</span></h3></div><div class="card-body"><div class="rt-person-list" id="droneList"></div></div></div>';
-        }
+        // HTML 已预置 rangerList/droneList 容器，直接填充动态数据
         this._refreshMonitorList(true);
+        this._initLayerCheckboxes();
+    },
+
+    // ==================== 图层管理联动 ====================
+    // 让图层管理面板中的"护林员位置"/"无人机位置"控制巡护模块的实时标记
+    _initLayerCheckboxes: function () {
+        var self = this;
+        var rangerCb = document.querySelector('#businessLayerGroup input[data-layer="rangers"]');
+        var droneCb = document.querySelector('#businessLayerGroup input[data-layer="drones"]');
+        if (!rangerCb || !droneCb) return;
+
+        var apply = function () {
+            var map = self._getActiveMap();
+            if (!map) return;
+            Object.keys(self.state.entityMarkers).forEach(function (id) {
+                var marker = self.state.entityMarkers[id];
+                if (!marker) return;
+                var isRanger = self.state.rangers[id] !== undefined;
+                if (isRanger) {
+                    rangerCb.checked ? marker.addTo(map) : map.removeLayer(marker);
+                } else {
+                    droneCb.checked ? marker.addTo(map) : map.removeLayer(marker);
+                }
+            });
+        };
+
+        rangerCb.onchange = apply;
+        droneCb.onchange = apply;
+        // 初始同步
+        apply();
     },
 
 };  // End of Patrol object

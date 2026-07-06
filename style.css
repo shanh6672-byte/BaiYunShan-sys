@@ -324,6 +324,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); curso
 .person-name { font-size: 13px; font-weight: 600; }
 .person-status { font-size: 11px; color: var(--text-muted); }
 .status-online { font-size: 11px; color: var(--accent-green); background: rgba(0,230,118,0.1); padding: 2px 8px; border-radius: 10px; }
+.status-offline { font-size: 11px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 10px; }
 .status-patrol { font-size: 11px; color: var(--accent-blue); background: rgba(68,138,255,0.1); padding: 2px 8px; border-radius: 10px; }
 
 /* ==================== 地图 ==================== */

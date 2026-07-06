@@ -241,8 +241,7 @@
         var dLyr = makePointLayer(droneFC,  DRONE_ICON,  dronePopup,  '无人机');
         var fLyr = makePointLayer(fireFC,   FIRE_ICON,   firePopup,   '火情');
         var pLyr = makePointLayer(diseaseFC, DISEASE_ICON, diseasePopup, '疫情');
-        if (rLyr) businessLayers.rangers = rLyr;
-        if (dLyr) businessLayers.drones = dLyr;
+        // rangers/drones 由巡护模块(patrol-module.js)实时管理，此处不注册
         if (fLyr) businessLayers.fires = fLyr;
         if (pLyr) businessLayers.diseases = pLyr;
 
@@ -285,8 +284,7 @@
 
         // ==================== 图层控制（checkbox + slider） ====================
         var NAME_MAP = {
-            forestBoundary: '林场边界', subCompartments: '林区界限', rangers: '护林员位置',
-            drones: '无人机位置', patrolRoutes: '巡护轨迹', fires: '火情点', diseases: '虫害点'
+            forestBoundary: '林场边界', subCompartments: '林区界限', patrolRoutes: '巡护轨迹', fires: '火情点', diseases: '虫害点'
         };
 
         function getMapInstances() {
@@ -315,7 +313,7 @@
                 var mapKeys = Object.keys(MapFacade._instances);
                 if (mapKeys.length && GeoServerLayers._typedLayers) {
                     var mapId = MapFacade._instances[mapKeys[0]]._leaflet_id;
-                    var typeMap = { rangers: 'rangers', drones: 'drones', fires: 'fires', diseases: 'pests' };
+                    var typeMap = { fires: 'fires', diseases: 'pests' };
                     var tKey = mapId + '_' + (typeMap[k] || k);
                     if (GeoServerLayers._typedLayers[tKey]) return GeoServerLayers._typedLayers[tKey];
                 }

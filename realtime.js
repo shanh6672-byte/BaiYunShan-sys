@@ -105,6 +105,8 @@ const RealtimeService = {
                     if (map) GeoServerLayers._addMarkersToMap(map);
                 });
             }
+            // 同步更新综合驾驶舱的护林员/无人机在线数量
+            if (typeof refreshDashboardStats === 'function') refreshDashboardStats();
         } catch(e) {
             // 静默失败
         }

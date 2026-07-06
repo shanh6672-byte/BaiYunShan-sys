@@ -4,20 +4,10 @@
 
 (function () {
 
-    // ---- 底图菜单定义（显示文本 → TILE_LAYERS key） ----
-    // 顺序：高德影像(默认) → 天地图地形 → Carto Dark → GF-2 → 无人机
+    // ---- 底图菜单定义（仅保留 OpenStreetMap 和高德影像） ----
     var BASEMAP_OPTIONS = [
-        { label: '-- 在线底图 --',   value: '', disabled: true },
-        { label: '高德影像（默认）',  value: 'amap-image' },
-        { label: '天地图地形',        value: 'tianditu-terrain' },
-        { label: 'Carto Dark',        value: 'carto-dark' },
-
-        { label: '-- 遥感影像（预留）--', value: '', disabled: true },
-        { label: 'GF-2 遥感影像',     value: 'gf2' },
-        { label: '无人机影像',        value: 'drone' },
-
-        { label: '-- 其他 --',        value: '', disabled: true },
-        { label: 'OpenStreetMap',     value: 'osm' }
+        { label: 'OpenStreetMap',     value: 'osm' },
+        { label: '高德影像',          value: 'amap-image' }
     ];
 
     // ---- 通过 parentNode 向上查找（兼容 closest） ----

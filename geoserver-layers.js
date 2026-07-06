@@ -4,7 +4,7 @@
 const GeoServerLayers = {
     _loaded: false,
     _layers: {},  // Leaflet GeoJSON layers
-    _apiMarkers: { rangers: null, drones: null },
+    _apiMarkers: {},
 
     async init() {
         if (this._loaded || ApiService.USE_MOCK) return;
@@ -149,27 +149,9 @@ const GeoServerLayers = {
         console.log('[GeoLayers] DEM图层已创建（色带渲染）');
     },
 
-    /** 从API加载护林员/无人机标记 */
+    /** 从API加载火情/疫情标记（护林员/无人机由巡护模块管理） */
     async _loadApiMarkers() {
-        try {
-            const rangers = await ApiService.getRangers();
-            const drones = await ApiService.getDrones();
-            this._apiMarkers.rangers = rangers;
-            this._apiMarkers.drones = drones;
-            console.log('[GeoLayers] API标记: ' + (rangers||[]).length + ' 护林员 / ' + (drones||[]).length + ' 无人机');
-        } catch (e) {
-            console.warn('[GeoLayers] API标记加载失败:', e.message);
-        }
-    },
-
-    /** 从API加载护林员/无人机数据 */
-    async _loadApiMarkers() {
-        try {
-            const [rangers, drones] = await Promise.all([ApiService.getRangers(), ApiService.getDrones()]);
-            if (rangers) this._apiMarkers.rangers = rangers;
-            if (drones) this._apiMarkers.drones = drones;
-            console.log('[GeoLayers] API标记: ' + (rangers||[]).length + ' 护林员 / ' + (drones||[]).length + ' 无人机');
-        } catch (e) {}
+        // 护林员和无人机位置由 patrol-module.js 实时管理，此处仅加载灾害数据
     },
 
     /**
@@ -181,7 +163,7 @@ const GeoServerLayers = {
         const mapId = map._leaflet_id;
 
         // 清除上次添加的标记（避免叠加）
-        ['rangers','drones','fires','pests','all'].forEach(t => {
+        ['fires','pests','all'].forEach(t => {
             const key = mapId + '_' + t;
             if (this._typedLayers && this._typedLayers[key]) {
                 map.removeLayer(this._typedLayers[key]);
@@ -194,27 +176,12 @@ const GeoServerLayers = {
         // 按类型分别创建 layerGroup
         this._typedLayers = this._typedLayers || {};
         this._markerLayers = this._markerLayers || {};
-        const rGroup = L.layerGroup();
-        const dGroup = L.layerGroup();
         const fGroup = L.layerGroup();
         const pGroup = L.layerGroup();
         const allGroup = L.layerGroup();
 
-        const rIcon = L.icon({ iconUrl: './forest-ranger.png', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32] });
-        const dIcon = L.icon({ iconUrl: './drone.png', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32] });
         const fIcon = L.icon({ iconUrl: './fire.png', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32] });
         const pIcon = L.icon({ iconUrl: './disease.png', iconSize: [30, 30], iconAnchor: [15, 30], popupAnchor: [0, -30] });
-
-        (this._apiMarkers.rangers || []).forEach(r => {
-            L.marker([r.lat, r.lng], { icon: rIcon }).addTo(rGroup).addTo(allGroup)
-                .bindTooltip(r.name)
-                .bindPopup(`<div class="popup-info"><div class="popup-title" style="color:#00e676;">护林员</div><div class="popup-row">姓名：${r.name}</div><div class="popup-row">工号：${r.id}</div><div class="popup-row">区域：${r.area}</div></div>`);
-        });
-        (this._apiMarkers.drones || []).forEach(d => {
-            L.marker([d.lat, d.lng], { icon: dIcon }).addTo(dGroup).addTo(allGroup)
-                .bindTooltip(d.code)
-                .bindPopup(`<div class="popup-info"><div class="popup-title" style="color:#448aff;">无人机</div><div class="popup-row">编号：${d.code}</div><div class="popup-row">型号：${d.model}</div></div>`);
-        });
 
         // 火情点
         const firePoints = this._firePoints || {};
@@ -257,25 +224,21 @@ const GeoServerLayers = {
             </div>`);
         });
 
-        // 存储分类型引用
-        this._typedLayers[mapId + '_rangers'] = rGroup;
-        this._typedLayers[mapId + '_drones']  = dGroup;
-        this._typedLayers[mapId + '_fires']   = fGroup;
-        this._typedLayers[mapId + '_pests']   = pGroup;
+        // 存储分类型引用（护林员/无人机由巡护模块独立管理）
+        this._typedLayers[mapId + '_fires'] = fGroup;
+        this._typedLayers[mapId + '_pests'] = pGroup;
         this._markerLayers[mapId] = allGroup;
         this._fireMarkers = fireMarkers;
 
         // 按类型分别添加到地图（图层管理面板可单独控制显隐）
-        rGroup.addTo(map);
-        dGroup.addTo(map);
         fGroup.addTo(map);
         pGroup.addTo(map);
 
-        // 读取图层管理面板的勾选状态，同步显隐（只匹配checkbox，排除range滑块）
+        // 同步图层管理面板勾选状态（护林员/无人机由巡护模块独立响应）
         var checkboxes = document.querySelectorAll('#businessLayerGroup input[type="checkbox"][data-layer]');
         checkboxes.forEach(function(cb) {
             var k = cb.dataset.layer;
-            var typeMap = { rangers: rGroup, drones: dGroup, fires: fGroup, diseases: pGroup };
+            var typeMap = { fires: fGroup, diseases: pGroup };
             if (typeMap[k] && !cb.checked) {
                 map.removeLayer(typeMap[k]);
             }

@@ -1210,23 +1210,25 @@ var basemapEl = document.getElementById('basemapSelect');
 var currentBasemap = null;
 if (basemapEl) {
     basemapEl.addEventListener('change', function() {
-        var map = MapFacade.getMap('dashMap');
-        if (!map) return;
-        if (currentBasemap) map.removeLayer(currentBasemap);
         var val = this.value;
-        var urls = {
-            'CartoDB底色': 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            '高德地图': 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-            '天地图影像': 'https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=174705aebfe31b79b3587279e211cb9a'
-        };
-        if (urls[val]) {
-            currentBasemap = L.tileLayer(urls[val], {
-                maxZoom: 19,
-                subdomains: val === '高德地图' ? '1234' : (val === '天地图影像' ? '01234567' : 'abcd')
-            }).addTo(map);
-        } else {
-            currentBasemap = L.tileLayer(urls['CartoDB底色'], {maxZoom:19}).addTo(map);
-        }
+        // 联动所有地图实例
+        var mapIds = Object.keys(MapFacade._instances || {});
+        mapIds.forEach(function(id) {
+            var map = MapFacade._instances[id];
+            if (!map) return;
+            // 移除旧底图
+            if (map._customBasemap) map.removeLayer(map._customBasemap);
+            var url, opts = { maxZoom: 19 };
+            if (val === 'OpenStreetMap') {
+                url = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+            } else if (val === '高德影像') {
+                url = 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}';
+                opts.subdomains = '1234';
+            }
+            if (url) {
+                map._customBasemap = L.tileLayer(url, opts).addTo(map);
+            }
+        });
     });
 }
 
