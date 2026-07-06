@@ -1209,26 +1209,27 @@ if (wttf) wttf.addEventListener('change', filterWarnings);
 var basemapEl = document.getElementById('basemapSelect');
 var currentBasemap = null;
 if (basemapEl) {
-    basemapEl.addEventListener('change', function() {
-        var val = this.value;
-        // 联动所有地图实例
-        var mapIds = Object.keys(MapFacade._instances || {});
-        mapIds.forEach(function(id) {
-            var map = MapFacade._instances[id];
-            if (!map) return;
-            // 移除旧底图
-            if (map._customBasemap) map.removeLayer(map._customBasemap);
-            var url, opts = { maxZoom: 19 };
-            if (val === 'OpenStreetMap') {
-                url = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-            } else if (val === '高德影像') {
-                url = 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}';
-                opts.subdomains = '1234';
-            }
-            if (url) {
-                map._customBasemap = L.tileLayer(url, opts).addTo(map);
-            }
-        });
+    basemapEl.addEventListener('change', switchBasemap);
+    // 页面加载时自动切换一次（替换引擎默认底图）
+    setTimeout(function() { basemapEl.dispatchEvent(new Event('change')); }, 300);
+}
+function switchBasemap() {
+    var val = document.getElementById('basemapSelect').value;
+    var mapIds = Object.keys(MapFacade._instances || {});
+    mapIds.forEach(function(id) {
+        var map = MapFacade._instances[id];
+        if (!map) return;
+        if (map._customBasemap) map.removeLayer(map._customBasemap);
+        var url, opts = { maxZoom: 19 };
+        if (val === 'OpenStreetMap') {
+            url = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+        } else if (val === '高德影像') {
+            url = 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}';
+            opts.subdomains = '1234';
+        }
+        if (url) {
+            map._customBasemap = L.tileLayer(url, opts).addTo(map);
+        }
     });
 }
 

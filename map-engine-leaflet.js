@@ -16,9 +16,10 @@ const LeafletEngine = {
             attributionControl: false,
             zoomControl: false
         });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
+            maxZoom: 18,
+            subdomains: '1234',
+            attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>'
         }).addTo(map);
         return map;
     },
