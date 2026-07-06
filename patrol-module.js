@@ -1630,45 +1630,130 @@ var Patrol = {
         var c = document.getElementById('inner-log'); if (!c) return;
         await this._loadLogs(); await this._loadTasks();
         var self = this;
-        // Build log entries with task info
-        var taskMap = {}; this.state.tasks.forEach(function(t){ taskMap[t.taskNumber||t.id] = t; if(t.id) taskMap[t.id] = t; });
-        var rows = '';
-        this.state.logs.forEach(function(l) {
-            var task = taskMap[l.taskId] || taskMap['TASK'+String(l.taskId).padStart(3,'0')];
-            var taskName = task ? task.name : (l.taskId ? '任务#'+l.taskId : '-');
-            var findings = l.findings || l.content || '';
-            var fc = 'tag-gray';
-            if(findings.indexOf('火灾')>=0 || findings.indexOf('火')>=0) fc='tag-red';
-            else if(findings.indexOf('松材')>=0 || findings.indexOf('病')>=0 || findings.indexOf('虫')>=0) fc='tag-orange';
-            else if(findings.indexOf('无异常')>=0 || findings==='') fc='tag-gray';
-            else fc='tag-blue';
-            rows += '<tr><td style="font-size:11px;">' + (l.date||l.createdAt||'-') + '</td><td>' + (l.rangerName||l.user_name||'-') + '</td><td>' + (l.area||'-') + '</td><td style="font-size:11px;">' + taskName + '</td>' +
-                    '<td><span class="tag ' + fc + ' tag-sm">' + (findings||'无异常') + '</span></td><td>' + (l.durationMin||0) + '分</td><td>' + (l.distanceKm||0) + 'km</td>' +
-                    '<td><a class="link-btn log-del-btn" data-id="' + (l.id||'') + '" style="color:#ff5252;cursor:pointer;font-size:11px;">删除</a></td></tr>';
-        });
-        c.innerHTML = '<div class="panel-card"><div class="card-header"><h3>巡护日志 (' + this.state.logs.length + '条)</h3><button class="btn btn-sm btn-outline" id="btnRefreshLogs">刷新</button></div><div class="card-body">' +
-            '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">' +
-            '<input type="date" id="logDateStart" style="padding:4px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:4px;font-size:11px;"/>' +
+
+        // 构建渲染函数，筛选条件变化时局部刷新表格
+        var renderTable = function (filterPerson, filterArea, filterType) {
+            var taskMap = {}; self.state.tasks.forEach(function(t){ taskMap[t.id] = t; taskMap[t.taskNumber] = t; });
+            var rows = '';
+            self.state.logs.forEach(function(l, idx) {
+                // 筛选
+                var uname = l.user_name || l.rangerName || '';
+                if (filterPerson && uname !== filterPerson) return;
+                if (filterArea && (l.area||'') !== filterArea) return;
+                if (filterType && (l.type||'info') !== filterType) return;
+
+                var task = taskMap[l.task_id] || taskMap['PT'+String(l.task_id).padStart(4,'0')];
+                var taskName = task ? task.name : (l.task_id ? '任务#'+l.task_id : '自主巡护');
+                var findings = l.findings || '';
+                if (!findings && l.content) {
+                    if (l.content.indexOf('火灾')>=0 || l.content.indexOf('火')>=0) findings = '火灾相关';
+                    else if (l.content.indexOf('松材')>=0 || l.content.indexOf('虫')>=0 || l.content.indexOf('病')>=0) findings = '病虫害相关';
+                    else if (l.content.indexOf('滑坡')>=0 || l.content.indexOf('积水')>=0) findings = '地质灾害';
+                }
+                var fc = 'tag-gray', ft = findings || '无异常';
+                if (l.type === 'complete') { ft = '巡护完成'; fc = 'tag-blue'; }
+                else if (l.type === 'info') ft = findings || '无异常';
+                else if (l.type === 'warning') { if (!findings) ft = '警告'; }
+                else if (l.type === 'danger') { if (!findings) ft = '异常'; fc = 'tag-red'; }
+                if (findings.indexOf('火灾')>=0 || findings.indexOf('火')>=0 || l.type==='danger') fc='tag-red';
+                else if (findings.indexOf('松材')>=0 || findings.indexOf('虫')>=0 || findings.indexOf('病')>=0) fc='tag-orange';
+                else if (findings.indexOf('滑坡')>=0 || findings.indexOf('地质')>=0 || l.type==='warning') fc='tag-orange';
+                else if (findings.indexOf('无异常')>=0 || !findings) fc='tag-green';
+                else fc='tag-blue';
+
+                var weather = l.weather || '--';
+                var duration = l.duration_min || l.durationMin || 0;
+                var distance = l.distance_km || l.distanceKm || 0;
+                var timeStr = (l.created_at || l.createdAt || l.date || '-');
+                if (timeStr.length > 16) timeStr = timeStr.slice(0,16);
+
+                rows += '<tr>' +
+                    '<td style="font-size:11px;">' + timeStr + '</td>' +
+                    '<td>' + uname + '</td>' +
+                    '<td>' + (l.area||'-') + '</td>' +
+                    '<td style="font-size:11px;">' + taskName + '</td>' +
+                    '<td><span class="tag ' + fc + ' tag-sm">' + (ft||findings||'无异常') + '</span></td>' +
+                    '<td style="font-size:11px;">' + weather + '</td>' +
+                    '<td>' + duration + '分</td><td>' + distance + 'km</td>' +
+                    '<td style="white-space:nowrap;">' +
+                    '<button class="btn btn-sm btn-outline log-view-btn" data-idx="' + idx + '" style="font-size:10px;padding:2px 5px;">详情</button> ' +
+                    '<a class="link-btn log-del-btn" data-id="' + (l.id||'') + '" style="color:#ff5252;cursor:pointer;font-size:11px;">删除</a></td></tr>';
+            });
+            var rangerCount = self.state.logs.filter(function(x){return (x.user_name||'').indexOf('UAV')===-1;}).length;
+            var droneCount = self.state.logs.filter(function(x){return (x.user_name||'').indexOf('UAV')>=0;}).length;
+            return { rows: rows, rangerCount: rangerCount, droneCount: droneCount };
+        };
+
+        var render = function() {
+            var fp = document.getElementById('logPersonFilter');
+            var fa = document.getElementById('logAreaFilter');
+            var ft = document.getElementById('logTypeFilter');
+            var filtered = renderTable(fp?fp.value:'', fa?fa.value:'', ft?ft.value:'');
+            var tbody = document.getElementById('logTableBody');
+            if (tbody) tbody.innerHTML = filtered.rows || '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">暂无匹配日志</td></tr>';
+            var stats = document.getElementById('logStats');
+            if (stats) stats.textContent = '共 ' + self.state.logs.length + ' 条 | 护林员 ' + filtered.rangerCount + ' 次 | 无人机 ' + filtered.droneCount + ' 次';
+        };
+
+        // 构建完整HTML（布满侧栏）
+        c.innerHTML = '<div class="panel-card" style="flex:1;display:flex;flex-direction:column;height:100%;">' +
+            '<div class="card-header"><h3>巡护日志 (' + this.state.logs.length + '条)</h3>' +
+            '<button class="btn btn-sm btn-outline" id="btnRefreshLogs">刷新</button></div>' +
+            '<div class="card-body" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">' +
+            '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">' +
             '<select id="logPersonFilter" style="padding:4px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:4px;font-size:11px;"><option value="">全部人员</option></select>' +
             '<select id="logAreaFilter" style="padding:4px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:4px;font-size:11px;"><option value="">全部区域</option><option>一号林区</option><option>二号林区</option><option>三号林区</option><option>四号林区</option><option>五号林区</option></select>' +
+            '<select id="logTypeFilter" style="padding:4px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:4px;font-size:11px;"><option value="">全部类型</option><option value="info">正常</option><option value="warning">警告</option><option value="danger">异常</option></select>' +
             '</div>' +
-            '<div style="max-height:400px;overflow-y:auto;"><table class="data-table"><thead><tr><th>日期</th><th>巡护人</th><th>区域</th><th>关联任务</th><th>发现</th><th>时长</th><th>里程</th><th>操作</th></tr></thead><tbody>' + (rows || '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">暂无日志</td></tr>') + '</tbody></table></div></div></div>';
+            '<div style="flex:1;overflow-y:auto;"><table class="data-table"><thead><tr>' +
+            '<th>时间</th><th>巡护人</th><th>区域</th><th>关联任务</th><th>发现</th><th>天气</th><th>时长</th><th>里程</th><th style="white-space:nowrap;">操作</th></tr></thead>' +
+            '<tbody id="logTableBody"></tbody></table></div>' +
+            '<div id="logStats" style="margin-top:8px;font-size:11px;color:var(--text-muted);"></div>' +
+            '</div></div>';
+
         // Populate person filter
         var pf = document.getElementById('logPersonFilter');
-        var names = {}; this.state.logs.forEach(function(l){ var n=l.rangerName||l.user_name; if(n) names[n]=1; });
+        var names = {}; this.state.logs.forEach(function(l){ var n=l.user_name||l.rangerName; if(n) names[n]=1; });
         for(var n in names) pf.innerHTML += '<option>'+n+'</option>';
+
+        // Initial render + filter change handlers
+        render();
+        pf.onchange = render;
+        document.getElementById('logAreaFilter').onchange = render;
+        document.getElementById('logTypeFilter').onchange = render;
         document.getElementById('btnRefreshLogs').onclick = function() { self._renderLogPanel(); };
-        // Delete log handlers
-        c.querySelectorAll('.log-del-btn').forEach(function(btn) {
-            btn.onclick = async function() {
+
+        // Detail view / Delete buttons (delegated on tbody)
+        var tbody = document.getElementById('logTableBody');
+        tbody.addEventListener('click', function(e) {
+            var btn = e.target.closest('.log-view-btn');
+            if (btn) {
+                var l = self.state.logs[parseInt(btn.dataset.idx)];
+                if (!l) return;
+                var timeStr = l.created_at || l.createdAt || '-';
+                if (timeStr.length > 16) timeStr = timeStr.slice(0,16);
+                var info = '【巡护日志详情】\n\n' +
+                    '时间: ' + timeStr + '\n' +
+                    '巡护人: ' + (l.user_name || l.rangerName || '-') + '\n' +
+                    '区域: ' + (l.area || '-') + '\n' +
+                    '天气: ' + (l.weather || '-') + '\n' +
+                    '时长: ' + (l.duration_min || l.durationMin || 0) + '分 | 里程: ' + (l.distance_km || l.distanceKm || 0) + 'km\n' +
+                    '坐标: ' + (l.lat||0).toFixed(4) + ', ' + (l.lng||0).toFixed(4) + '\n' +
+                    '关联任务: ' + (l.task_id || '自主巡护') + '\n\n' +
+                    '巡护记录:\n' + (l.content || '无');
+                alert(info);
+                return;
+            }
+            btn = e.target.closest('.log-del-btn');
+            if (btn) {
                 if (!confirm('确定删除此日志？')) return;
-                try {
-                    var rs = await fetch('/api/patrol-logs/' + btn.dataset.id, { method: 'DELETE', headers: self._authHeaders() });
-                    var js = await rs.json();
-                    if (!js.success) { alert(js.error || '删除失败'); return; }
-                } catch (e) { alert('网络错误'); return; }
-                self._renderLogPanel();
-            };
+                fetch('/api/patrol-logs/' + btn.dataset.id, { method: 'DELETE', headers: self._authHeaders() })
+                    .then(function(r){ return r.json(); })
+                    .then(function(js){
+                        if (!js.success) { alert(js.error||'删除失败'); return; }
+                        self._renderLogPanel();
+                    }).catch(function(){ alert('网络错误'); });
+            }
         });
     },
 

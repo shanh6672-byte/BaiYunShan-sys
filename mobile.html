@@ -698,6 +698,8 @@ async function finishPatrol() {
     var area = currentTask.area || '';
     var lastLat = gpsPoints.length > 0 ? gpsPoints[gpsPoints.length - 1][0] : 0;
     var lastLng = gpsPoints.length > 0 ? gpsPoints[gpsPoints.length - 1][1] : 0;
+    var weathers = ['晴 26℃','多云 24℃','阴 22℃','小雨 20℃','微风 28℃'];
+    var weather = weathers[Math.floor(Math.random() * weathers.length)];
     fetch(API + '/api/patrol-logs', {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
@@ -709,9 +711,10 @@ async function finishPatrol() {
             area: area,
             durationMin: durationMin,
             distanceKm: Math.round(distKm * 100) / 100,
-            findings: '巡护完成 | ' + currentTask.name + ' | ' + gpsPoints.length + '个轨迹点',
-            content: '巡护完成 | ' + currentTask.name + ' | ' + gpsPoints.length + '个轨迹点',
-            type: 'complete',
+            findings: '无异常',
+            content: '完成' + currentTask.name + '巡护任务，' + area + '沿线未发现异常。共采集' + gpsPoints.length + '个轨迹点，巡护里程' + distKm.toFixed(1) + 'km。',
+            type: 'info',
+            weather: weather,
             lat: lastLat,
             lng: lastLng
         })
@@ -722,7 +725,7 @@ async function finishPatrol() {
     document.getElementById('btnFinish').disabled = true;
     document.getElementById('btnPhoto').disabled = true;
     document.getElementById('timeVal').textContent = '已完成';
-    addLog('完成巡护: ' + currentTask.name + ' | 共' + gpsPoints.length + '个轨迹点 | ' + durationMin + '分钟 ' + distKm.toFixed(2) + 'km');
+    addLog('巡护完成: ' + currentTask.name + ' | ' + durationMin + '分钟 | ' + distKm.toFixed(1) + 'km | 天气: ' + weather);
     var t = allTasks.find(function (x) { return x.id === tid; });
     if (t) { t.status = '已完成'; t.progress = 100; }
     currentTask.status = '已完成';

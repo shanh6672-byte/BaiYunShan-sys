@@ -320,6 +320,52 @@ def delete_task(task_id):
 _logs = []
 _log_id_seq = 1
 
+def _seed_logs():
+    global _log_id_seq
+    if _logs:
+        return
+    seeds = [
+        # 张建国 - 一号林区
+        {'user_name': '张建国', 'task_id': 'PT0001', 'area': '一号林区', 'content': '完成一号林区鱼骨巡护任务，沿途植被状况良好，未发现异常。',
+         'findings': '无异常', 'type': 'info', 'weather': '晴 28℃', 'duration_min': 185, 'distance_km': 16.8, 'lat': 28.5331, 'lng': 119.9127},
+        {'user_name': '张建国', 'task_id': 'PT0001', 'area': '一号林区', 'content': '在一号林区东南角发现枯死松木3株，疑似松材线虫病，已拍照上报。坐标标记完成。',
+         'findings': '松材线虫病疑似', 'type': 'warning', 'weather': '多云 26℃', 'duration_min': 210, 'distance_km': 18.3, 'lat': 28.5390, 'lng': 119.9190},
+        # 李明辉 - 二号林区
+        {'user_name': '李明辉', 'task_id': 'PT0002', 'area': '二号林区', 'content': '二号林区之字覆盖巡护完成，重点巡查了西北坡防火隔离带，隔离带完好无破损。',
+         'findings': '无异常', 'type': 'info', 'weather': '晴 30℃', 'duration_min': 195, 'distance_km': 20.1, 'lat': 28.5538, 'lng': 119.9323},
+        {'user_name': '李明辉', 'task_id': 'PT0002', 'area': '二号林区', 'content': '发现林区道路旁有游客丢弃的烟头若干，已清理。提醒加强入口火源管控宣传。',
+         'findings': '火灾隐患（已清除）', 'type': 'danger', 'weather': '晴 31℃', 'duration_min': 220, 'distance_km': 19.5, 'lat': 28.5480, 'lng': 119.9280},
+        # 王大山 - 三号林区
+        {'user_name': '王大山', 'task_id': 'PT0003', 'area': '三号林区', 'content': '三号林区主干道巡护完成，整体林相正常。西南侧幼林生长良好，成活率约95%。',
+         'findings': '无异常', 'type': 'info', 'weather': '阴 25℃', 'duration_min': 150, 'distance_km': 12.4, 'lat': 28.5044, 'lng': 119.9439},
+        {'user_name': '王大山', 'task_id': 'PT0003', 'area': '三号林区', 'content': '巡护至三号林区南坡时闻到轻微烟味，经排查为附近村民焚烧秸秆，已劝止并上报。',
+         'findings': '违规用火（已处置）', 'type': 'danger', 'weather': '阴 26℃', 'duration_min': 170, 'distance_km': 14.2, 'lat': 28.4980, 'lng': 119.9400},
+        # 陈志强 - 四号林区
+        {'user_name': '陈志强', 'task_id': 'PT0004', 'area': '四号林区', 'content': '四号林区鱼骨巡护完成，北坡发现一处小型滑坡（约20㎡），未影响林区道路通行，已标记。',
+         'findings': '地质灾害（已标记）', 'type': 'warning', 'weather': '小雨 22℃', 'duration_min': 200, 'distance_km': 17.6, 'lat': 28.5140, 'lng': 119.8721},
+        {'user_name': '陈志强', 'task_id': 'PT0004', 'area': '四号林区', 'content': '雨后巡护，林区道路多处积水，主干道通行正常。检查了防火蓄水池，水量充足。',
+         'findings': '无异常', 'type': 'info', 'weather': '阵雨 23℃', 'duration_min': 175, 'distance_km': 16.1, 'lat': 28.5100, 'lng': 119.8750},
+        # UAV-03 - 五号林区
+        {'user_name': 'UAV-03 大疆M350', 'task_id': '', 'area': '五号林区', 'content': '无人机自动巡航完成五号林区航拍，正射影像已拼接上传。可见光未发现异常热点。',
+         'findings': '无异常', 'type': 'info', 'weather': '晴 29℃', 'duration_min': 45, 'distance_km': 32.0, 'lat': 28.4928, 'lng': 119.9053},
+        # UAV-01
+        {'user_name': 'UAV-01 大疆M300', 'task_id': '', 'area': '一号林区', 'content': '无人机网格化巡查一号林区，红外热成像未检测到异常高温点，可见光影像存档。',
+         'findings': '无异常', 'type': 'info', 'weather': '晴 28℃', 'duration_min': 38, 'distance_km': 28.5, 'lat': 28.5300, 'lng': 119.9150},
+    ]
+    for s in seeds:
+        log = {
+            'id': 'PL{:04d}'.format(_log_id_seq),
+            'task_id': s['task_id'], 'user_id': '', 'user_name': s['user_name'],
+            'content': s['content'], 'type': s['type'], 'lat': s['lat'], 'lng': s['lng'],
+            'area': s['area'], 'duration_min': s['duration_min'], 'distance_km': s['distance_km'],
+            'findings': s['findings'], 'weather': s['weather'],
+            'created_at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        _log_id_seq += 1
+        _logs.append(log)
+
+_seed_logs()
+
 @patrol_bp.route('/patrol-logs', methods=['GET'])
 def get_logs():
     task_id = request.args.get('task_id', '')
@@ -338,11 +384,16 @@ def create_log():
         'id': 'PL{:04d}'.format(_log_id_seq),
         'task_id': data.get('task_id', ''),
         'user_id': data.get('user_id', ''),
-        'user_name': data.get('user_name', ''),
+        'user_name': data.get('user_name', data.get('rangerName', '')),
         'content': data.get('content', ''),
         'type': data.get('type', 'info'),
         'lat': data.get('lat', 0),
         'lng': data.get('lng', 0),
+        'area': data.get('area', ''),
+        'duration_min': data.get('duration_min', data.get('durationMin', 0)),
+        'distance_km': data.get('distance_km', data.get('distanceKm', 0)),
+        'findings': data.get('findings', data.get('content', '')),
+        'weather': data.get('weather', ''),
         'created_at': now
     }
     _log_id_seq += 1

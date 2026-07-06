@@ -1964,7 +1964,7 @@ def sync_positions():
 @app.route('/api/geoserver/<path:subpath>', methods=['GET'])
 @jwt_required()
 def geoserver_proxy(subpath):
-    """代理 GeoServer WMS/WFS 请求，解决跨域问题"""
+    """代理 GeoServer WMS/WFS 请求（需JWT认证，供前端JS fetch使用）"""
     import requests as req
     target = f'{Config.GEOSERVER_URL}/{subpath}'
     params = dict(request.args)
@@ -1972,6 +1972,28 @@ def geoserver_proxy(subpath):
         resp = req.get(target, params=params, auth=(Config.GEOSERVER_USER, Config.GEOSERVER_PASSWORD), timeout=15)
         return Response(resp.content, status=resp.status_code, content_type=resp.headers.get('Content-Type', 'image/png'))
     except req.RequestException as e:
+        return jsonify({'error': str(e)}), 502
+
+
+@app.route('/geoserver/<path:subpath>', methods=['GET'])
+def geoserver_wms_proxy(subpath):
+    """代理 GeoServer WMS 瓦片请求（无需JWT，tileLayer图片标签无法带认证头）"""
+    import requests as req
+    target = f'{Config.GEOSERVER_URL}/{subpath}'
+    if request.query_string:
+        target += '?' + request.query_string.decode('utf-8')
+    try:
+        resp = req.get(target, auth=(Config.GEOSERVER_USER, Config.GEOSERVER_PASSWORD), timeout=15)
+        excluded = ['transfer-encoding', 'connection', 'keep-alive']
+        r = Response(resp.content, status=resp.status_code,
+            content_type=resp.headers.get('Content-Type', 'image/png'))
+        for k, v in resp.headers.items():
+            if k.lower() not in excluded:
+                r.headers[k] = v
+        r.headers['Access-Control-Allow-Origin'] = '*'
+        r.headers['Cache-Control'] = 'public, max-age=3600'
+        return r
+    except Exception as e:
         return jsonify({'error': str(e)}), 502
 
 

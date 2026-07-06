@@ -1233,6 +1233,70 @@ function switchBasemap() {
     });
 }
 
+// ==================== 恢复初始状态 ====================
+function resetToInitialState() {
+    // 1. 切回综合驾驶舱页面
+    document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
+    var dashNav = document.querySelector('.nav-item[data-page="page-dashboard"]');
+    if (dashNav) dashNav.classList.add('active');
+    document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+    var dashPage = document.getElementById('page-dashboard');
+    if (dashPage) dashPage.classList.add('active');
+
+    // 2. 恢复底图为高德影像
+    var bmSel = document.getElementById('basemapSelect');
+    if (bmSel) { bmSel.value = '高德影像'; switchBasemap(); }
+
+    // 3. 恢复图层管理checkbox默认状态
+    var defaults = { forestBoundary: true, subCompartments: true, rangers: true, drones: true, fires: true, diseases: true };
+    Object.keys(defaults).forEach(function(k) {
+        var cb = document.querySelector('#businessLayerGroup input[data-layer="' + k + '"]');
+        if (cb && cb.checked !== defaults[k]) { cb.checked = defaults[k]; cb.dispatchEvent(new Event('change')); }
+    });
+
+    // 4. 重新加载GeoServer图层
+    if (typeof GeoServerLayers !== 'undefined') {
+        GeoServerLayers._loaded = false;
+        GeoServerLayers.init().catch(function(){});
+    }
+
+    // 5. 重置巡护模块状态
+    if (typeof Patrol !== 'undefined' && Patrol.state) {
+        // 清空轨迹缓冲
+        Patrol.state._trackBuffer = [];
+        Patrol.state._trackFlushTimer = 0;
+        // 清空实时轨迹线
+        Object.keys(Patrol.state.realtimeTrackLines || {}).forEach(function(k) {
+            var map = Patrol._getActiveMap ? Patrol._getActiveMap() : null;
+            if (map && Patrol.state.realtimeTrackLines[k].line) {
+                map.removeLayer(Patrol.state.realtimeTrackLines[k].line);
+            }
+        });
+        Patrol.state.realtimeTrackLines = {};
+        // 清空路径和进度
+        Patrol.state._animProgress = {};
+        Patrol.state.simPaths = {};
+        // 重新生成路径并启动
+        if (typeof Patrol._generateSimPaths === 'function') Patrol._generateSimPaths();
+        if (typeof Patrol._startSimOnMap === 'function') setTimeout(function(){ Patrol._startSimOnMap(); }, 500);
+    }
+
+    // 6. 刷新仪表盘统计
+    if (typeof refreshDashboardStats === 'function') refreshDashboardStats();
+
+    // 7. 刷新灾害列表
+    if (typeof DisasterPanel !== 'undefined') {
+        if (DisasterPanel.refreshFireList) DisasterPanel.refreshFireList();
+        if (DisasterPanel.refreshPestList) DisasterPanel.refreshPestList();
+    }
+
+    // 8. 地图视角回到白云山中心
+    var map = (typeof MapFacade !== 'undefined') ? MapFacade.getMap('dashMap') : null;
+    if (map) map.setView([28.530, 119.910], 14, { animate: true });
+
+    console.log('[Reset] 页面已恢复初始状态');
+}
+
 // ==================== 驾驶舱侧边栏（左右独立） ====================
 // 动态计算图层管理侧边栏位置，使其左边缘与按钮右边缘对齐，上边缘与按钮上边缘对齐
 function positionLayerSidebar() {
