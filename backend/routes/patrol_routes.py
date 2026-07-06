@@ -228,7 +228,7 @@ def _seed_tasks():
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     seed = [
         {'name': '一号林区日常巡护', 'type': '日常巡护', 'area': '一号林区', 'members': ['HL001'], 'members_names': ['张建国'],
-         'route_name': '一号林区-边界巡护', 'start_time': '2026-07-05T08:00', 'end_time': '2026-07-05T12:00'},
+         'route_name': '一号林区-鱼骨巡护', 'start_time': '2026-07-05T08:00', 'end_time': '2026-07-05T12:00'},
         {'name': '二号林区防火巡护', 'type': '防火巡护', 'area': '二号林区', 'members': ['HL002'], 'members_names': ['李明辉'],
          'route_name': '二号林区-之字覆盖', 'start_time': '2026-07-05T09:00', 'end_time': '2026-07-05T13:00'},
         {'name': '三号林区疫情巡护', 'type': '疫情巡护', 'area': '三号林区', 'members': ['HL003'], 'members_names': ['王大山'],
@@ -290,8 +290,15 @@ def create_task():
     _tasks.append(task)
     return jsonify({'success': True, 'data': task})
 
-@patrol_bp.route('/patrol-tasks/<task_id>', methods=['PUT'])
-def update_task(task_id):
+@patrol_bp.route('/patrol-tasks/<task_id>', methods=['GET', 'PUT'])
+def task_by_id(task_id):
+    # GET — 获取单个任务（手机端查询最新任务路线）
+    if request.method == 'GET':
+        for t in _tasks:
+            if t['id'] == task_id:
+                return jsonify({'success': True, 'data': t})
+        return jsonify({'success': False, 'error': '任务不存在'}), 404
+    # PUT — 更新任务
     data = request.get_json() or {}
     for t in _tasks:
         if t['id'] == task_id:

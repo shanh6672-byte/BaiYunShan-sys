@@ -150,12 +150,72 @@ var Patrol = {
         ];
     },
 
-    // ==================== 轨迹平滑处理 ====================
-    // 降采样 + Catmull-Rom 平滑，让轨迹更短更自然
+    // ==================== 巡护路径生成器 ====================
+    // 正弦波路径（护林员步行巡护：沿主方向蜿蜒前进）
+    _genSinePath: function (centerLat, centerLng, directionDeg, totalLen, amplitude, waves) {
+        // directionDeg: 主方向角度（0=东, 90=北）
+        // totalLen: 总长度（度）
+        // amplitude: 正弦振幅（度）
+        // waves: 波数
+        var rad = directionDeg * Math.PI / 180;
+        var cosD = Math.cos(rad), sinD = Math.sin(rad);
+        var perpCos = Math.cos(rad + Math.PI / 2), perpSin = Math.sin(rad + Math.PI / 2);
+        var steps = waves * 12 + 1;
+        var pts = [];
+        for (var i = 0; i < steps; i++) {
+            var t = i / (steps - 1);                          // 0..1
+            var along = (t - 0.5) * totalLen;                 // 沿主方向偏移
+            var perp = Math.sin(t * Math.PI * 2 * waves) * amplitude;  // 垂直正弦偏移
+            // 衰减两端振幅，使起点终点更自然
+            var taper = Math.sin(t * Math.PI);                // 0→1→0，两端衰减
+            perp *= 0.4 + 0.6 * taper;
+            pts.push([
+                centerLat + along * cosD + perp * perpCos,
+                centerLng + along * sinD + perp * perpSin
+            ]);
+        }
+        return pts;
+    },
+
+    // 回字弯折路径（无人机网格巡护：来回折返覆盖区域）
+    _genZigzagPath: function (centerLat, centerLng, directionDeg, totalLen, width, passes) {
+        // directionDeg: 主方向角度
+        // totalLen: 每条扫描线的长度（度）
+        // width: 扫描带总宽度（度）
+        // passes: 往返趟数
+        var rad = directionDeg * Math.PI / 180;
+        var cosD = Math.cos(rad), sinD = Math.sin(rad);
+        var perpCos = Math.cos(rad + Math.PI / 2), perpSin = Math.sin(rad + Math.PI / 2);
+        var pts = [];
+        for (var p = 0; p < passes; p++) {
+            var t = p / (passes - 1 || 1);                   // 0..1 across width
+            var perpOff = (t - 0.5) * width;
+            // 来回：偶数趟正向，奇数趟反向
+            var reverse = (p % 2 === 1);
+            var segSteps = 8;
+            for (var s = 0; s <= segSteps; s++) {
+                var st = s / segSteps;
+                var alongOff = reverse ? (1 - st - 0.5) * totalLen : (st - 0.5) * totalLen;
+                pts.push([
+                    centerLat + alongOff * cosD + perpOff * perpCos,
+                    centerLng + alongOff * sinD + perpOff * perpSin
+                ]);
+            }
+        }
+        // 去重相邻重复点
+        var out = [pts[0]];
+        for (var i = 1; i < pts.length; i++) {
+            var dlat = pts[i][0] - out[out.length - 1][0];
+            var dlng = pts[i][1] - out[out.length - 1][1];
+            if (Math.abs(dlat) > 1e-7 || Math.abs(dlng) > 1e-7) out.push(pts[i]);
+        }
+        return out;
+    },
+
+    // 降采样 + Catmull-Rom 平滑（保留兼容，用于旧路径）
     _smoothTrack: function (coords, maxPoints) {
         maxPoints = maxPoints || 60;
         if (coords.length <= maxPoints) return this._catmullRom(coords, 4);
-        // 均匀降采样
         var step = (coords.length - 1) / (maxPoints - 1);
         var sampled = [];
         for (var i = 0; i < maxPoints - 1; i++) {
@@ -406,11 +466,11 @@ var Patrol = {
             self._checkMobileActivity();
             // 增量更新侧栏（只改速度/电量文字，不重建DOM，不闪烁）
             self._refreshMonitorList();
-            // 后端模拟器已直接写入 PatrolTrackPoint，前端不再重复上报
-            // if (self.state._trackFlushTimer % 10 === 0 && self.state._trackBuffer.length > 0) {
-            //     var buf = self.state._trackBuffer.splice(0);
-            //     self._saveTrackPoints(buf);
-            // }
+            // 每 ~4.5秒批量保存轨迹点到后端
+            if (self.state._trackFlushTimer % 10 === 0 && self.state._trackBuffer.length > 0) {
+                var buf = self.state._trackBuffer.splice(0);
+                self._saveTrackPoints(buf);
+            }
         }, 450);
 
         // ═══ 平滑动画循环（50ms ≈ 20fps）── 图标沿轨迹连续滑动 ═══
@@ -757,26 +817,26 @@ var Patrol = {
             .then(function (json) {
                 if (!json.success || json.data.length === 0) {
                     var pool = htype === 'ranger' ? self.state.rangers : self.state.drones;
-                    var opts = '<option value="">-- 选择 --</option>';
+                    var opts = '<option value="" style="color:#8ba4bc;background:#0a1628;">-- 选择 --</option>';
                     Object.keys(pool).forEach(function (id) {
                         var e = pool[id];
-                        opts += '<option value="' + id + '">' + (e.name || e.model || id) + ' (' + id + ')</option>';
+                        opts += '<option value="' + id + '" style="color:#e4edf5;background:#0a1628;">' + (e.name || e.model || id) + ' (' + id + ')</option>';
                     });
                     done(opts);
                 } else {
-                    var opts = '<option value="">-- 选择 --</option>';
+                    var opts = '<option value="" style="color:#8ba4bc;background:#0a1628;">-- 选择 --</option>';
                     json.data.forEach(function (e) {
-                        opts += '<option value="' + e.entityId + '">' + (e.entityName || e.entityId) + ' (' + e.entityId + ') - ' + e.pointCount + '点</option>';
+                        opts += '<option value="' + e.entityId + '" style="color:#e4edf5;background:#0a1628;">' + (e.entityName || e.entityId) + ' (' + e.entityId + ') - ' + e.pointCount + '点</option>';
                     });
                     done(opts);
                 }
             })
             .catch(function () {
                 var pool = htype === 'ranger' ? self.state.rangers : self.state.drones;
-                var opts = '<option value="">-- 选择 --</option>';
+                var opts = '<option value="" style="color:#8ba4bc;background:#0a1628;">-- 选择 --</option>';
                 Object.keys(pool).forEach(function (id) {
                     var e = pool[id];
-                    opts += '<option value="' + id + '">' + (e.name || e.model || id) + ' (' + id + ')</option>';
+                    opts += '<option value="' + id + '" style="color:#e4edf5;background:#0a1628;">' + (e.name || e.model || id) + ' (' + id + ')</option>';
                 });
                 done(opts);
             });
@@ -827,7 +887,7 @@ var Patrol = {
             });
     },
 
-    // 按 sessionId 查询轨迹并以回放模式渲染到地图
+    // 按 sessionId 查询，基于后端数据生成仿实巡护路径（护林员=正弦蜿蜒，无人机=回字折返）
     _queryTrackBySession: async function (sessionId, sessionName, entityType) {
         var self = this;
         var color = entityType === 'ranger' ? '#fdd835' : '#448aff';
@@ -844,10 +904,10 @@ var Patrol = {
             if (fl.length === 0) { re.innerHTML = '该轨迹无数据'; return; }
             var map = this._getActiveMap(); if (!map) { re.innerHTML = '地图未就绪'; return; }
 
-            // 先清除之前的回放和轨迹
+            // 先清除之前的轨迹
             this._clearQueryTrack();
 
-            // 构建坐标数组，过滤无效点
+            // 从后端轨迹点提取中心位置和方向
             var rawCoords = [];
             fl.forEach(function (l) {
                 var la = parseFloat(l.lat), ln = parseFloat(l.lng);
@@ -857,22 +917,35 @@ var Patrol = {
             });
             if (rawCoords.length < 2) { re.innerHTML = '有效轨迹点不足（需至少2个）'; return; }
 
-            // 降采样 + Catmull-Rom 平滑，使轨迹更短更自然
-            var coords = this._smoothTrack(rawCoords, 60);
-            this.state._playCoords = coords;
-            this.state._playIndex = 0;
-            this.state._playSpeed = 1;
+            // 计算中心点和方向角
+            var sumLat = 0, sumLng = 0;
+            rawCoords.forEach(function (c) { sumLat += c[0]; sumLng += c[1]; });
+            var cLat = sumLat / rawCoords.length;
+            var cLng = sumLng / rawCoords.length;
+            var dlat = rawCoords[rawCoords.length - 1][0] - rawCoords[0][0];
+            var dlng = rawCoords[rawCoords.length - 1][1] - rawCoords[0][1];
+            var dirDeg = Math.atan2(dlat, dlng) * 180 / Math.PI;  // 主方向角度
+            if (Math.abs(dlat) < 1e-6 && Math.abs(dlng) < 1e-6) dirDeg = 45; // 默认东北
 
-            // 保存当前地图视角，以便退出回放时恢复
-            this.state._prevMapView = { center: map.getCenter(), zoom: map.getZoom() };
+            // 参数：总长度~0.004度(约400m)，振幅/宽度~0.0008度(约80m)
+            // 原来~60点太大，现在缩到~15-30个关键点
+            var totalLen = 0.008;    // 总路径长（度）
+            var amplitude = 0.0016;  // 正弦振幅（度）
+            var width = 0.005;       // 回字扫描宽度（度）
 
-            // 隐藏实时模拟图层（路线预览线、实时轨迹线、边界线），让地图只显示当前回放轨迹
-            this._hideSimLayers(map);
+            var coords;
+            if (entityType === 'ranger') {
+                // 护林员：正弦波蜿蜒路径（模拟步行巡山）
+                coords = this._genSinePath(cLat, cLng, dirDeg, totalLen, amplitude, 5);
+            } else {
+                // 无人机：回字折返路径（模拟网格扫描覆盖）
+                coords = this._genZigzagPath(cLat, cLng, dirDeg, totalLen, width, 4);
+            }
 
-            // 绘制回放轨迹线
+            // 绘制静态轨迹线（虚线风格，清晰可见）
             this._qTrackLine = L.polyline(coords, {
-                color: color, weight: 4, opacity: 0.9,
-                lineJoin: 'round', lineCap: 'round'
+                color: color, weight: 4, opacity: 0.85,
+                dashArray: '8, 5', lineJoin: 'round', lineCap: 'round'
             }).addTo(map);
 
             // 起点和终点标记
@@ -889,53 +962,25 @@ var Patrol = {
                 L.marker(coords[coords.length - 1], { icon: eIcon }).bindTooltip('终点')
             ]).addTo(map);
 
-            // 定位到轨迹范围（放大聚焦）
+            // 定位到轨迹范围
             map.invalidateSize();
             var bounds = L.latLngBounds(coords);
             if (bounds.isValid()) {
-                map.fitBounds(bounds.pad(0.08), { maxZoom: 18 });
+                map.fitBounds(bounds.pad(0.15), { maxZoom: 18 });
             } else {
                 map.setView(coords[0], 17);
             }
 
-            // 创建回放移动图标
-            var iconUrl = entityType === 'ranger' ? '/forest-ranger.png' : '/drone.png';
-            var playIcon = L.icon({ iconUrl: iconUrl, iconSize: [26, 26], iconAnchor: [13, 13] });
-            this.state._playMarker = L.marker(coords[0], { icon: playIcon, zIndexOffset: 2000 }).addTo(map);
-            this.state._playMarker.bindTooltip(sessionName, { permanent: false, direction: 'top', offset: [0, -16] });
+            // 点击地图任意位置清除轨迹
+            this._qTrackClickHandler = function () {
+                self._clearQueryTrack();
+            };
+            map.once('click', this._qTrackClickHandler);
 
-            // 渲染回放控制栏（紧凑布局，倍速按钮醒目）
-            var speedBtns = '';
-            [1,2,4,8].forEach(function(s) {
-                var active = s === 1 ? 'background:var(--accent-blue);color:#fff;' : 'background:rgba(255,255,255,0.1);color:var(--text-secondary);';
-                speedBtns += '<button class="btn btn-sm speed-btn" data-speed="' + s + '" style="padding:2px 8px;font-size:12px;border:1px solid var(--border-color);border-radius:4px;' + active + '">' + s + 'x</button>';
-            });
-            var ctrlHtml = '<div style="display:flex;align-items:center;gap:6px;padding:8px 0;">' +
-                '<button id="btnPlayPause" style="padding:4px 10px;background:var(--accent-green);color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;">⏸ 暂停</button>' +
-                '<span style="color:var(--text-muted);font-size:11px;">速度:</span>' +
-                '<span style="display:flex;gap:3px;">' + speedBtns + '</span>' +
-                '<span id="playProgress" style="font-size:11px;color:var(--text-muted);margin-left:auto;">0/' + coords.length + '</span>' +
-                '</div>' +
-                '<div style="padding:4px 0;"><a class="link-btn" onclick="Patrol._clearQueryTrack()" style="color:var(--accent-red);cursor:pointer;font-size:12px;">✕ 退出回放</a></div>';
-            re.innerHTML = '<div style="color:var(--accent-green);margin-bottom:6px;font-size:13px;">▶ ' + sessionName + '</div>' + ctrlHtml;
-
-            // 绑定控制事件
-            document.getElementById('btnPlayPause').onclick = function () { self._togglePlayback(); };
-            re.querySelectorAll('.speed-btn').forEach(function (btn) {
-                btn.onclick = function () {
-                    self.state._playSpeed = parseInt(this.dataset.speed) || 1;
-                    // 高亮当前选中
-                    re.querySelectorAll('.speed-btn').forEach(function (b) {
-                        b.style.background = 'rgba(255,255,255,0.1)'; b.style.color = 'var(--text-secondary)';
-                    });
-                    this.style.background = 'var(--accent-blue)'; this.style.color = '#fff';
-                };
-            });
-
-            // 自动开始回放
-            this._startTrackPlayback();
-            // 暂停实时模拟，等退出回放后再恢复
-            this._pauseSimulation();
+            var pathLabel = entityType === 'ranger' ? '正弦巡护' : '回字扫描';
+            re.innerHTML = '<div style="color:var(--accent-green);margin-bottom:6px;font-size:13px;">📌 ' + sessionName +
+                ' <span style="color:var(--text-muted);font-size:11px;">[' + pathLabel + ' · ' + coords.length + '点]</span></div>' +
+                '<div style="padding:4px 0;"><a class="link-btn" onclick="Patrol._clearQueryTrack()" style="color:var(--accent-red);cursor:pointer;font-size:12px;">✕ 清除轨迹</a></div>';
 
         } catch (e) {
             console.error('[Patrol] 查询轨迹失败:', e);
@@ -944,32 +989,22 @@ var Patrol = {
     },
 
     _clearQueryTrack: function () {
-        // 停止回放动画
-        this._stopTrackPlayback();
         var map = this._getActiveMap();
         if (map) {
-            // 移除回放轨迹线和标记
             if (this._qTrackLine) map.removeLayer(this._qTrackLine);
             if (this._qTrackMarks) map.removeLayer(this._qTrackMarks);
-            if (this.state._playMarker) map.removeLayer(this.state._playMarker);
-            // 恢复被隐藏的模拟图层
-            this._showSimLayers(map);
-            // 恢复之前的地图视角
-            if (this.state._prevMapView) {
-                map.setView(this.state._prevMapView.center, this.state._prevMapView.zoom);
-                this.state._prevMapView = null;
+            if (this._qTrackClickHandler) {
+                map.off('click', this._qTrackClickHandler);
+                this._qTrackClickHandler = null;
             }
         }
         this._qTrackLine = null;
         this._qTrackMarks = null;
-        this.state._playMarker = null;
         this.state._playCoords = null;
         this.state._playIndex = 0;
         this.state._isPlaying = false;
         var el = document.getElementById('trackQueryResult');
         if (el) el.style.display = 'none';
-        // 恢复实时模拟
-        this._resumeSimulation();
     },
 
     // ==================== 轨迹回放动画 ====================
@@ -1149,22 +1184,20 @@ var Patrol = {
             this.state.realtimeBoundary.addTo(map);
     },
 
-    // 切换模块时清理：停止回放、清除轨迹、恢复模拟
+    // 切换模块时清理：清除静态轨迹
     _cleanupOnNavigate: function () {
-        this._stopTrackPlayback();
         var map = this._getActiveMap();
         if (map) {
             if (this._qTrackLine) map.removeLayer(this._qTrackLine);
             if (this._qTrackMarks) map.removeLayer(this._qTrackMarks);
-            if (this.state._playMarker) map.removeLayer(this.state._playMarker);
-            this._showSimLayers(map);
+            if (this._qTrackClickHandler) {
+                map.off('click', this._qTrackClickHandler);
+                this._qTrackClickHandler = null;
+            }
         }
         this._qTrackLine = null;
         this._qTrackMarks = null;
-        this.state._playMarker = null;
-        this.state._playCoords = null;
         this.state._isPlaying = false;
-        this._resumeSimulation();
     },
 
     // ==================== UI — 任务发布 + 列表 ====================
@@ -1234,10 +1267,14 @@ var Patrol = {
             var st = t.status || '草稿';
             var tc = statusColors[st] || 'tag-gray';
             var prog = t.progress || 0;
-            var canDel = true;
+            var canDel = (st === '草稿' || st === '待执行');
             var canDispatch = st === '草稿';
+            var canStart = st === '待执行';
+            var canComplete = st === '进行中';
             var actions = '';
             if(canDispatch) actions += '<a class="link-btn patrol-dispatch-task" data-id="' + t.id + '" style="color:var(--accent-green);">派发</a> ';
+            if(canStart) actions += '<a class="link-btn patrol-start-task" data-id="' + t.id + '" style="color:var(--accent-green);">▶ 开始</a> ';
+            if(canComplete) actions += '<a class="link-btn patrol-complete-task" data-id="' + t.id + '" style="color:var(--accent-blue);">✓ 完成</a> ';
             actions += '<a class="link-btn patrol-view-task" data-id="' + t.id + '" style="color:var(--accent-blue);">查看</a> ';
             if(canDel) actions += '<a class="link-btn patrol-del-task" data-id="' + t.id + '" style="color:var(--accent-red);">删除</a>';
             r += '<tr><td style="font-size:11px;">' + (t.taskNumber||t.id) + '</td><td>' + t.name + '</td><td>' + (t.type||'-') + '</td>' +
@@ -1251,6 +1288,8 @@ var Patrol = {
         c.appendChild(w);
         document.getElementById('btnRefreshPatrolTasks').onclick = async function () { await self._loadTasks(); self._renderTaskList(); };
         w.querySelectorAll('.patrol-dispatch-task').forEach(function (b) { b.onclick = function () { self._dispatchTask(b.dataset.id); }; });
+        w.querySelectorAll('.patrol-start-task').forEach(function (b) { b.onclick = async function () { try { var rs = await fetch('/api/patrol-tasks/' + b.dataset.id, { method: 'PUT', headers: self._authHeaders(), body: JSON.stringify({status:'进行中'}) }); var js = await rs.json(); if(!js.success) { alert(js.error||'开始失败'); return; } await self._loadTasks(); self._renderTaskList(); } catch(e) { alert('网络错误'); } }; });
+        w.querySelectorAll('.patrol-complete-task').forEach(function (b) { b.onclick = async function () { try { var rs = await fetch('/api/patrol-tasks/' + b.dataset.id, { method: 'PUT', headers: self._authHeaders(), body: JSON.stringify({status:'已完成', progress:100}) }); var js = await rs.json(); if(!js.success) { alert(js.error||'完成失败'); return; } await self._loadTasks(); self._renderTaskList(); } catch(e) { alert('网络错误'); } }; });
         w.querySelectorAll('.patrol-view-task').forEach(function (b) { b.onclick = function () { self._viewTask(b.dataset.id); }; });
         w.querySelectorAll('.patrol-del-task').forEach(function (b) { b.onclick = async function () { if (!confirm('确定删除此任务？')) return; try { var rs = await fetch('/api/patrol-tasks/' + b.dataset.id, { method: 'DELETE', headers: self._authHeaders() }); var js = await rs.json(); if(!js.success) { alert(js.error||'删除失败'); return; } } catch(e){} await self._loadTasks(); self._renderTaskList(); }; });
     },
@@ -1685,97 +1724,59 @@ var Patrol = {
         if (!re) return;
         re.style.display = 'block';
 
-        // 所有子模块共用 dashMap（全局共享可见地图）
         var map = this._getActiveMap();
-        // 清除上一次分析图层（模拟图层的隐显由子模块 observer 管理）
         if (map) {
             if (!this.state._coverageLayers) this.state._coverageLayers = [];
             this.state._coverageLayers.forEach(function (l) { try { map.removeLayer(l); } catch (e) {} });
             this.state._coverageLayers = [];
         }
 
-        // 过滤掉模拟轨迹，只保留真实任务数据
-        var realTracks = (data.tracks || []).filter(function (tk) { return tk.status !== '模拟'; });
-
-        // 统计面板
         var rateColor = data.coverageRate >= 70 ? 'var(--accent-green)' : (data.coverageRate >= 40 ? 'var(--accent-orange)' : 'var(--accent-red)');
-        var compColor = data.completeness === '优秀' ? 'var(--accent-green)' : (data.completeness === '良好' ? 'var(--accent-blue)' : (data.completeness === '一般' ? 'var(--accent-orange)' : 'var(--accent-red)'));
+        var compColor = data.completeness.indexOf('优秀') >= 0 ? 'var(--accent-green)' : (data.completeness.indexOf('良好') >= 0 ? 'var(--accent-blue)' : (data.completeness.indexOf('一般') >= 0 ? 'var(--accent-orange)' : 'var(--accent-red)'));
         var periodLabel = data.period === 'today' ? '今日' : (data.period === '7days' ? '近7天' : (data.period === '30days' ? '近30天' : '自定义'));
         var h = '<div style="margin-bottom:8px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;">' +
-            '<div style="font-weight:600;margin-bottom:6px;">覆盖分析报告 <span style="font-size:10px;color:var(--text-muted);font-weight:400;">(' + periodLabel + ')</span></div>' +
+            '<div style="font-weight:600;margin-bottom:6px;">📊 覆盖分析报告 <span style="font-size:10px;color:var(--text-muted);font-weight:400;">(' + periodLabel + ')</span></div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;">' +
             '<div>覆盖率: <b style="color:' + rateColor + ';">' + data.coverageRate + '%</b></div>' +
             '<div>完整度: <b style="color:' + compColor + ';">' + data.completeness + '</b></div>' +
-            '<div>覆盖面积: <b>' + (data.coveredArea || 0) + '亩</b></div>' +
-            '<div>盲区面积: <b style="color:var(--accent-red);">' + (data.blindArea || 0) + '亩</b></div>' +
+            '<div>覆盖面积: <b>' + (data.coveredArea || 0) + ' 亩</b></div>' +
+            '<div>盲区面积: <b style="color:var(--accent-red);">' + (data.blindArea || 0) + ' 亩</b></div>' +
+            '<div>林场总面积: <b>' + (data.totalArea || 0) + ' 亩</b></div>' +
             '<div>轨迹点数: <b>' + (data.trackPoints || 0) + '</b></div>' +
-            '<div>任务数: <b>' + realTracks.length + '</b></div>' +
+            (data.fromGeoserver ? '<div style="grid-column:1/-1;font-size:10px;color:var(--accent-green);">✓ 基于白云山林场真实边界</div>' : '<div style="grid-column:1/-1;font-size:10px;color:var(--accent-orange);">⚠ 使用近似边界框</div>') +
             '</div></div>';
-
-        // 轨迹列表（仅真实任务）
-        if (realTracks.length > 0) {
-            h += '<div style="margin-top:6px;"><b style="font-size:11px;">分析轨迹 (' + realTracks.length + '条)</b></div>';
-            h += '<div style="max-height:120px;overflow-y:auto;margin-top:4px;">';
-            var self = this;
-            realTracks.forEach(function (tk, idx) {
-                var stColor = tk.status === '已完成' ? 'var(--accent-green)' : 'var(--accent-orange)';
-                h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.05);">' +
-                    '<span style="width:8px;height:8px;border-radius:50%;background:' + stColor + ';flex-shrink:0;"></span>' +
-                    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + tk.taskName + '</span>' +
-                    '<span style="color:var(--text-muted);font-size:10px;">' + (tk.area || '') + '</span>' +
-                    '<a class="link-btn cov-track-focus" data-idx="' + idx + '" style="color:var(--accent-blue);font-size:10px;cursor:pointer;">定位</a></div>';
-            });
-            h += '</div>';
-        }
 
         // 盲区列表
         if (data.blindAreas && data.blindAreas.length > 0) {
-            h += '<div style="margin-top:8px;"><b style="font-size:11px;color:var(--accent-red);">盲区 (' + data.blindAreas.length + '处)</b></div>';
+            h += '<div style="margin-top:6px;"><b style="font-size:11px;color:var(--accent-red);">🔴 巡护盲区 (' + data.blindAreas.length + '处)</b></div>';
             data.blindAreas.forEach(function (ba) {
-                h += '<div style="font-size:11px;padding:2px 0;">' + ba.name + ' <span class="tag tag-red tag-sm">' + ba.tag + '</span> ' + ba.area + '亩 ' +
-                    '<a class="link-btn cov-blind-focus" data-lat="' + ba.lat + '" data-lng="' + ba.lng + '" style="color:var(--accent-blue);font-size:10px;cursor:pointer;">定位</a></div>';
+                h += '<div style="font-size:11px;padding:2px 0;display:flex;align-items:center;gap:4px;">' +
+                    '<span style="flex:1;">' + ba.name + '</span>' +
+                    '<span class="tag tag-red tag-sm">' + ba.tag + '</span>' +
+                    '<span style="color:var(--text-muted);">' + ba.area + '亩</span>' +
+                    '<a class="link-btn cov-blind-focus" data-lat="' + ba.lat + '" data-lng="' + ba.lng + '" style="color:var(--accent-blue);font-size:10px;cursor:pointer;">📍</a></div>';
             });
+        } else if (data.coverageRate > 0) {
+            h += '<div style="margin-top:6px;font-size:11px;color:var(--accent-green);">✅ 当前时段巡护覆盖良好，无明显盲区</div>';
         }
 
         re.innerHTML = h;
 
-        // 在覆盖分析地图上绘制轨迹
-        if (map && realTracks.length > 0) {
-            // 确保模拟图层已隐藏（子模块 observer 已调用过一次，这里防御性再调）
-            this._hideSimForTaskMgmt();
+        // 绘制林场边界和盲区标记
+        if (map) {
             var self = this;
-
-            // 绘制分析区域绿色边界
             var bnd = this._getBoundaryCoords();
             var boundaryLine = L.polyline(bnd, {
-                color: '#00e676', weight: 2.5, opacity: 0.7, dashArray: '6,8'
-            }).addTo(map);
+                color: '#00e676', weight: 2.5, opacity: 0.6, dashArray: '6,8'
+            }).addTo(map).bindPopup('白云山林场边界');
             this.state._coverageLayers.push(boundaryLine);
 
-            var allBounds = [];
-            realTracks.forEach(function (tk, idx) {
-                if (!tk.coords || tk.coords.length < 2) return;
-                var line = L.polyline(tk.coords, {
-                    color: '#ff1744', weight: 3.5, opacity: 0.9,
-                }).addTo(map);
-                line.bindPopup('<b>' + tk.taskName + '</b><br>状态: ' + tk.status + '<br>区域: ' + (tk.area || '-') + '<br>执行人: ' + (tk.rangerName || '-'));
-                self.state._coverageLayers.push(line);
-                tk.coords.forEach(function (c) { allBounds.push(c); });
-            });
-
-            // 绘制盲区
+            // 绘制盲区标记
             if (data.blindAreas) {
                 data.blindAreas.forEach(function (ba) {
-                    if (ba.polygon && ba.polygon.length > 2) {
-                        var poly = L.polygon(ba.polygon, {
-                            color: '#ff5252', weight: 1.5, fillColor: '#ff5252', fillOpacity: 0.15,
-                            dashArray: '6,4'
-                        }).addTo(map);
-                        poly.bindPopup('<b>' + ba.name + '</b><br>面积: ' + ba.area + '亩<br>' + ba.tag);
-                        self.state._coverageLayers.push(poly);
-                    } else if (ba.lat && ba.lng) {
+                    if (ba.lat && ba.lng) {
                         var marker = L.circleMarker([ba.lat, ba.lng], {
-                            radius: 6, color: '#ff5252', fillColor: '#ff5252', fillOpacity: 0.4, weight: 1.5
+                            radius: 8, color: '#ff5252', fillColor: '#ff5252', fillOpacity: 0.3, weight: 2
                         }).addTo(map);
                         marker.bindPopup('<b>' + ba.name + '</b><br>面积: ' + ba.area + '亩<br>' + ba.tag);
                         self.state._coverageLayers.push(marker);
@@ -1783,49 +1784,18 @@ var Patrol = {
                 });
             }
 
-            // 自适应视图（优先用轨迹范围，否则用边界范围）
-            if (allBounds.length > 0) {
-                try { map.fitBounds(L.latLngBounds(allBounds).pad(0.15), { animate: true }); } catch (e) {}
-            } else {
-                try { map.fitBounds(L.latLngBounds(bnd).pad(0.1), { animate: true }); } catch (e) {}
-            }
+            // 自适应视图
+            try { map.fitBounds(L.latLngBounds(bnd).pad(0.1), { animate: true }); } catch (e) {}
         }
 
-        // 绑定定位按钮
-        var self = this;
-        re.querySelectorAll('.cov-track-focus').forEach(function (btn) {
-            btn.onclick = function () {
-                var idx = parseInt(btn.dataset.idx);
-                var tk = realTracks[idx];
-                if (tk && tk.coords && tk.coords.length > 0 && map) {
-                    try { map.fitBounds(L.latLngBounds(tk.coords).pad(0.3), { animate: true }); } catch (e) {}
-                }
-            };
-        });
+        // 绑定盲区定位按钮
         re.querySelectorAll('.cov-blind-focus').forEach(function (btn) {
             btn.onclick = function () {
                 var lat = parseFloat(btn.dataset.lat), lng = parseFloat(btn.dataset.lng);
                 if (lat && lng && map) map.setView([lat, lng], 15, { animate: true });
             };
         });
-
-        // 保底：延迟确保地图缩放到林区范围
-        setTimeout(function () {
-            var m = self._getActiveMap();
-            if (!m) return;
-            var bnd = self._getBoundaryCoords();
-            var bounds = [];
-            realTracks.forEach(function (tk) {
-                if (tk.coords) tk.coords.forEach(function (c) { bounds.push(c); });
-            });
-            if (bounds.length > 2) {
-                m.fitBounds(L.latLngBounds(bounds).pad(0.15));
-            } else {
-                m.fitBounds(L.latLngBounds(bnd).pad(0.1));
-            }
-        }, 300);
     },
-
     _renderAllPanels: function () {
         this._renderTaskPublish(); this._renderTaskList(); this._renderRoutePlanning();
         this._renderRouteMgmt(); this._renderLogPanel(); this._renderRangerLedger(); this._renderDroneLedger();

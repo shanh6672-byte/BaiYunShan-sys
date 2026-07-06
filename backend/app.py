@@ -195,6 +195,13 @@ def get_stats_overview():
     abnormal_count = AbnormalEvent.query.count()
     unhandled = AbnormalEvent.query.filter(~AbnormalEvent.status.in_(['已处置', '已解除'])).count()
 
+    # 火情分析面板汇总
+    fire_area = db.session.query(db.func.coalesce(db.func.sum(FireEvent.area_mu), 0)).scalar()
+    fire_max_temp = db.session.query(db.func.coalesce(db.func.max(FireEvent.temperature_c), 0)).scalar()
+    fire_risk = '高' if FireEvent.query.filter_by(risk_level='高').count() > 0 else \
+               ('中' if FireEvent.query.filter_by(risk_level='中').count() > 0 else \
+               ('低' if fire_count > 0 else '-'))
+
     return jsonify({
         'patrolCount': Ranger.query.count(),
         'onlineRangers': online_rangers,
@@ -206,6 +213,9 @@ def get_stats_overview():
         'pestCount': pest_count,
         'abnormalCount': abnormal_count,
         'unhandledCount': unhandled,
+        'fireArea': round(fire_area, 1),
+        'fireRisk': fire_risk,
+        'fireMaxTemp': round(fire_max_temp, 1) if fire_max_temp > 0 else '-',
     })
 
 
@@ -1472,103 +1482,148 @@ def _generate_per_area_ndvi(avg_ndvi, high_th=0.70, mid_th=0.40, low_th=0.15):
     return levels
 
 
+def _fetch_forest_boundary():
+    """从 GeoServer WFS 获取白云山林场真实边界（所有小班合并）"""
+    import requests
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+    try:
+        wfs_url = f'{Config.GEOSERVER_URL}/{Config.GEOSERVER_WORKSPACE}/ows'
+        params = {
+            'service': 'WFS', 'version': '1.1.0', 'request': 'GetFeature',
+            'typeName': f'{Config.GEOSERVER_WORKSPACE}:baiyunshan_compartments1',
+            'outputFormat': 'application/json', 'srsName': 'EPSG:4326',
+        }
+        resp = requests.get(wfs_url, params=params, auth=(Config.GEOSERVER_USER, Config.GEOSERVER_PASSWORD), timeout=15)
+        if resp.status_code != 200:
+            # fallback: bounding box
+            from shapely.geometry import box
+            return box(119.854, 28.480, 119.966, 28.581), False
+        geojson = resp.json()
+        features = geojson.get('features', [])
+        if not features:
+            from shapely.geometry import box
+            return box(119.854, 28.480, 119.966, 28.581), False
+        polygons = [shape(f['geometry']) for f in features if f.get('geometry')]
+        if not polygons:
+            from shapely.geometry import box
+            return box(119.854, 28.480, 119.966, 28.581), False
+        boundary = unary_union(polygons)
+        return boundary, True
+    except Exception as e:
+        from shapely.geometry import box
+        return box(119.854, 28.480, 119.966, 28.581), False
+
+
 @app.route('/api/analysis/coverage', methods=['POST'])
 @jwt_required()
 def run_coverage_analysis():
-    """巡护覆盖分析 — 基于真实轨迹数据的缓冲区分析"""
+    """巡护覆盖分析 — 基于今日巡护路径 + 白云山林场真实边界做缓冲区分析"""
     data = request.get_json() or {}
-    period = data.get('period', 'today')  # today / 7days / 30days
+    period = data.get('period', 'today')
 
     now = datetime.datetime.now(datetime.timezone.utc)
     if period == 'today':
         start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == '30days':
         start_time = now - datetime.timedelta(days=30)
-    else:  # 7days
+    else:
         start_time = now - datetime.timedelta(days=7)
 
-    # 查询时间段内的所有轨迹点
-    ranger_tracks = RangerTrack.query.filter(
-        RangerTrack.timestamp >= start_time
-    ).all()
-    drone_tracks = DroneTrack.query.filter(
-        DroneTrack.timestamp >= start_time
+    # 查询 PatrolTrackPoint（模拟器写入的历史轨迹点）
+    pts = PatrolTrackPoint.query.filter(
+        PatrolTrackPoint.timestamp >= start_time
     ).all()
 
-    all_points = []
+    all_points = [(p.lng, p.lat) for p in pts]
+
+    # 也加入 RangerTrack / DroneTrack（模拟器同步写入的实时轨迹）
+    ranger_tracks = RangerTrack.query.filter(RangerTrack.timestamp >= start_time).all()
+    drone_tracks = DroneTrack.query.filter(DroneTrack.timestamp >= start_time).all()
     for t in ranger_tracks:
         all_points.append((t.lng, t.lat))
     for t in drone_tracks:
         all_points.append((t.lng, t.lat))
 
-    if len(all_points) < 3:
+    total_points = len(all_points)
+
+    if total_points < 3:
         return jsonify({
             'success': True,
             'data': {
                 'coverageRate': 0, 'coveredArea': 0, 'totalArea': 12060,
-                'blindArea': 12060, 'completeness': '数据不足',
-                'blindAreas': [],
-                'trackPoints': len(all_points),
-                'period': period,
+                'blindArea': 12060, 'completeness': '数据不足，请等待模拟运行',
+                'blindAreas': [], 'trackPoints': total_points, 'period': period,
             }
         })
 
     try:
-        from shapely.geometry import Point, Polygon, box
+        from shapely.geometry import Point, box
         from shapely.ops import unary_union
         import math
 
-        # 为每个轨迹点创建缓冲区（护林员约500m视线范围，无人机约1km）
+        # 获取真实林场边界
+        forest_bounds, from_geoserver = _fetch_forest_boundary()
+
+        # 为每个轨迹点创建缓冲区
+        # 护林员可视范围约300m，无人机约800m，综合取500m
+        BUFFER_M = 500
         buffers = []
         for lng, lat in all_points:
-            # 近似：经度1度≈111km*cos(lat)，纬度1度≈111km
             lat_rad = math.radians(lat)
-            buffer_deg_lng = 0.005 / math.cos(lat_rad)  # ~500m
-            buffer_deg_lat = 0.005  # ~500m
+            # 1度 ≈ 111320m * cos(lat)（经度）/ 111320m（纬度）
+            buf_deg = (BUFFER_M / 111320.0)
             p = Point(lng, lat)
-            # Shapely buffer 单位是度，直接用近似椭圆
-            buffers.append(p.buffer(max(buffer_deg_lng, buffer_deg_lat)))
+            buffers.append(p.buffer(buf_deg))
 
-        # 合并所有缓冲区
+        # 合并所有缓冲区 → 总覆盖范围
         covered_union = unary_union(buffers)
 
-        # 白云山林场边界框（近似多边形）
-        forest_bounds = box(119.854, 28.480, 119.966, 28.581)
-        # 实际覆盖 = 缓冲区 ∩ 林场范围
+        # 实际覆盖 = 缓冲区 ∩ 林场边界
         effective_coverage = covered_union.intersection(forest_bounds)
 
-        # 计算面积（近似：1平方度 ≈ 12321 km²，实际按纬度调整）
-        total_area_deg = (119.966 - 119.854) * (28.581 - 28.480)  # 度²
+        # 面积计算
+        # 使用 shapely 的 area（单位：度²），换算为亩
+        # 1度² ≈ (111320m)² ≈ 12392 km²，1 km² = 1500亩
+        DEG2_TO_MU = (111320 ** 2) / 1_000_000 * 1500  # ≈ 18579 亩/度²
+
+        total_area_deg = forest_bounds.area
         covered_area_deg = effective_coverage.area
-        coverage_rate = min(100, round(covered_area_deg / total_area_deg * 100, 1))
+        coverage_rate = min(100, round(covered_area_deg / max(total_area_deg, 1e-12) * 100, 1))
 
-        # 转换为亩（1 km² = 1500亩，1度² ≈ 12321 km²）
-        total_area_mu = round(total_area_deg * 12321 * 1500 / 10000, 0)  # 度² → 公顷 → 亩
-        covered_area_mu = round(covered_area_deg * 12321 * 1500 / 10000, 0)
-        blind_area_mu = round(total_area_mu - covered_area_mu, 0)
+        total_area_mu = round(total_area_deg * DEG2_TO_MU, 0)
+        covered_area_mu = round(covered_area_deg * DEG2_TO_MU, 0)
+        blind_area_mu = round(max(0, total_area_mu - covered_area_mu), 0)
 
-        # 盲区分析
+        # 盲区分析：林场边界 - 覆盖范围
         blind_areas = []
         if blind_area_mu > 0:
-            blind_polygons = forest_bounds.difference(effective_coverage)
-            if hasattr(blind_polygons, 'geoms'):
-                for i, geom in enumerate(list(blind_polygons.geoms)[:5]):
-                    area = round(geom.area * 12321 * 1500 / 10000, 0)
-                    centroid = geom.centroid
-                    blind_areas.append({
-                        'id': f'BA{i+1:02d}',
-                        'name': f'盲区{i+1}',
-                        'area': area,
-                        'lat': round(centroid.y, 5),
-                        'lng': round(centroid.x, 5),
-                        'tag': '未覆盖' if area > 500 else '覆盖不足',
-                    })
-            elif not blind_polygons.is_empty:
-                area = round(blind_polygons.area * 12321 * 1500 / 10000, 0)
-                blind_areas.append({
-                    'id': 'BA01', 'name': '未覆盖区域', 'area': area,
-                    'lat': 28.530, 'lng': 119.910, 'tag': '未覆盖',
-                })
+            try:
+                blind_polygons = forest_bounds.difference(effective_coverage)
+                if hasattr(blind_polygons, 'geoms'):
+                    geoms = sorted(list(blind_polygons.geoms), key=lambda g: g.area, reverse=True)[:5]
+                    for i, geom in enumerate(geoms):
+                        area = round(geom.area * DEG2_TO_MU, 0)
+                        if area < 50:
+                            continue
+                        centroid = geom.centroid
+                        blind_areas.append({
+                            'id': f'BA{i+1:02d}',
+                            'name': f'盲区{i+1}',
+                            'area': area,
+                            'lat': round(centroid.y, 5),
+                            'lng': round(centroid.x, 5),
+                            'tag': '未覆盖' if area > 500 else '覆盖不足',
+                        })
+                elif not blind_polygons.is_empty:
+                    area = round(blind_polygons.area * DEG2_TO_MU, 0)
+                    if area >= 50:
+                        blind_areas.append({
+                            'id': 'BA01', 'name': '未覆盖区域', 'area': area,
+                            'lat': 28.530, 'lng': 119.910, 'tag': '未覆盖',
+                        })
+            except Exception:
+                pass  # 差分计算失败时跳过盲区
 
         # 完整度评价
         if coverage_rate >= 80:
@@ -1589,13 +1644,13 @@ def run_coverage_analysis():
                 'blindArea': blind_area_mu,
                 'completeness': completeness,
                 'blindAreas': blind_areas,
-                'trackPoints': len(all_points),
+                'trackPoints': total_points,
                 'period': period,
+                'fromGeoserver': from_geoserver,
             }
         })
 
-    except ImportError:
-        # Shapely不可用时返回模拟数据
+    except ImportError as e:
         import random
         return jsonify({
             'success': True,
@@ -1604,12 +1659,12 @@ def run_coverage_analysis():
                 'coveredArea': round(random.uniform(8000, 10000), 0),
                 'totalArea': 12060,
                 'blindArea': round(random.uniform(2000, 4000), 0),
-                'completeness': '良好',
+                'completeness': '良好（模拟）',
                 'blindAreas': [
                     {'id': 'BA01', 'name': '东南角未覆盖区', 'area': 850, 'tag': '未覆盖', 'lat': 28.490, 'lng': 119.950},
                     {'id': 'BA02', 'name': '西北边缘区', 'area': 920, 'tag': '未覆盖', 'lat': 28.570, 'lng': 119.870},
                 ],
-                'trackPoints': len(all_points),
+                'trackPoints': total_points,
                 'period': period,
             }
         })
@@ -1994,6 +2049,39 @@ _ranger_generators = {}   # {ranger_id: RangerTrackGenerator}
 _drone_generators = {}    # {drone_id: DroneTrackGenerator}
 
 
+def _get_task_route_for_ranger(ranger_id, ranger_name=''):
+    """查找该护林员是否有进行中的任务，有则返回任务的路线waypoints"""
+    try:
+        from routes.patrol_routes import _tasks as patrol_mem_tasks
+        # ranger_id是DB整数ID，转换为HLxxx格式匹配members
+        hl_id = f'HL{ranger_id:03d}'
+        for t in patrol_mem_tasks:
+            if t.get('status') == '进行中':
+                members = t.get('members', [])
+                if hl_id in members or ranger_name in members:
+                    wps = t.get('route_waypoints', [])
+                    if wps and len(wps) >= 2:
+                        return [(wp[0], wp[1]) for wp in wps]  # (lat, lng) tuples
+        # 也查DB中的PatrolTask
+        try:
+            from models import PatrolTask
+            db_task = PatrolTask.query.filter(
+                PatrolTask.ranger_id == ranger_id,
+                PatrolTask.status == '进行中'
+            ).first()
+            if db_task and db_task.route_geometry:
+                import json
+                geo = json.loads(db_task.route_geometry)
+                coords = geo.get('coordinates', [])
+                if coords and len(coords) >= 2:
+                    return [(c[1], c[0]) for c in coords]  # GeoJSON: [lng, lat] -> (lat, lng)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return None
+
+
 def _get_patrol_route_for_area(area_name):
     """根据林区名称获取对应的巡护路线"""
     if not PATROL_ROUTES:
@@ -2020,6 +2108,29 @@ def _get_boundary_for_ranger(name, area):
             if comp_name in area or area in comp_name:
                 return COMPARTMENT_POLYGONS[comp_name]
     return None
+
+
+# PatrolTrackPoint 写入辅助
+_session_ids_tp = {}
+_session_start_tp = {}
+_track_seq_tp = 0
+
+def _write_patrol_track_point(entity_key, entity_id, entity_type, entity_name,
+                               lat, lng, speed, battery, timestamp, heading=0):
+    """写入 PatrolTrackPoint，自动 session 轮转（每 1500s 新 session）"""
+    global _track_seq_tp
+    now_ts = time.time()
+    if entity_key not in _session_start_tp or (now_ts - _session_start_tp[entity_key]) >= 1500:
+        _track_seq_tp += 1
+        _session_ids_tp[entity_key] = f'{entity_key}_{int(now_ts)}_{_track_seq_tp}'
+        _session_start_tp[entity_key] = now_ts
+
+    pt = PatrolTrackPoint(
+        entity_id=entity_id, entity_type=entity_type, entity_name=entity_name,
+        lat=lat, lng=lng, speed=speed, battery=battery, heading=heading,
+        session_id=_session_ids_tp[entity_key], timestamp=timestamp
+    )
+    db.session.add(pt)
 
 
 def track_simulator():
@@ -2053,11 +2164,23 @@ def track_simulator():
                 for r in rangers:
                     try:
                         if r.id not in _ranger_generators:
-                            route = _get_patrol_route_for_area(r.area)
+                            # 优先使用任务分配的路线，否则用林区默认路线
+                            route = _get_task_route_for_ranger(r.id, r.name) or _get_patrol_route_for_area(r.area)
                             boundary = _get_boundary_for_ranger(r.name, r.area)
                             _ranger_generators[r.id] = RangerTrackGenerator(route=route, boundary_polygon=boundary)
                             if r.lat and 28.48 < r.lat < 28.58:
                                 _ranger_generators[r.id].position = (r.lat, r.lng)
+                        else:
+                            # 每30秒检查一次是否有新任务分配的路线
+                            if _tick % 30 == 0:
+                                task_route = _get_task_route_for_ranger(r.id, r.name)
+                                if task_route:
+                                    current_key = str(_ranger_generators[r.id].route[:3]) if _ranger_generators[r.id].route else ''
+                                    new_key = str(task_route[:3])
+                                    if current_key != new_key:
+                                        print(f'[TrackSim] {r.name} 任务路线已更新，重建生成器')
+                                        boundary = _get_boundary_for_ranger(r.name, r.area)
+                                        _ranger_generators[r.id] = RangerTrackGenerator(route=task_route, boundary_polygon=boundary)
 
                         gen = _ranger_generators[r.id]
                         dt = RANGER_CONFIG['update_interval_s']
@@ -2077,6 +2200,8 @@ def track_simulator():
                             status=status
                         )
                         db.session.add(track)
+                        _write_patrol_track_point(f'ranger_{r.id}', f'HL{r.id:03d}', 'ranger',
+                            r.name or f'HL{r.id:03d}', lat, lng, r.speed_kmh or 0, r.battery_percent or 100, now)
                         if _tick % 10 == 0:
                             broadcast_sse('ranger_update', r.to_dict())
                     except Exception as e:
@@ -2164,6 +2289,8 @@ def track_simulator():
                         payload_status='任务中' if mission else '航测'
                     )
                     db.session.add(dtrack)
+                    _write_patrol_track_point(f'drone_{d.id}', f'UAV-{d.id:02d}', 'drone',
+                        d.model or f'UAV-{d.id:02d}', lat, lng, d.speed_kmh or 0, d.battery_percent or 100, now, heading=heading)
                     if _tick % 10 == 0:
                         broadcast_sse('drone_update', d.to_dict())
 
@@ -2511,7 +2638,7 @@ def list_track_sessions():
         db.func.min(PatrolTrackPoint.timestamp).label('start_time'),
         db.func.max(PatrolTrackPoint.timestamp).label('end_time'),
     ).filter(PatrolTrackPoint.entity_id == entity_id).group_by(
-        PatrolTrackPoint.session_id
+        PatrolTrackPoint.session_id, PatrolTrackPoint.entity_name, PatrolTrackPoint.entity_type
     ).order_by(db.func.min(PatrolTrackPoint.timestamp).desc()).all()
     result = []
     for i, row in enumerate(rows):

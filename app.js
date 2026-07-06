@@ -1442,10 +1442,10 @@ function initSpatialPage() {
                     <div class="form-row"><div class="form-group half"><label>起始日期</label><input type="date" id="fireStartDate" value="2026-01-01"/></div><div class="form-group half"><label>结束日期</label><input type="date" id="fireEndDate" value="2026-06-28"/></div></div>
                     <div class="form-group"><label>风向风速</label><div class="form-row"><div class="form-group half"><select class="select-full"><option>东北风</option><option>北风</option><option>东风</option><option>东南风</option><option>南风</option><option>西南风</option><option>西风</option><option>西北风</option></select></div><div class="form-group half"><select class="select-full"><option>1级 (0.3-1.5m/s)</option><option>2级 (1.6-3.3m/s)</option><option>3级 (3.4-5.4m/s)</option><option>4级 (5.5-7.9m/s)</option><option>5级 (8.0-10.7m/s)</option><option>6级 (10.8-13.8m/s)</option></select></div></div></div>
                     <div class="analysis-result" style="margin-top:14px;">
-                        <div class="result-item"><span class="result-label">火点数量</span><span class="result-value red">3 处</span></div>
-                        <div class="result-item"><span class="result-label">预估面积</span><span class="result-value red">86 亩</span></div>
-                        <div class="result-item"><span class="result-label">风险等级</span><span class="result-value orange">较高</span></div>
-                        <div class="result-item"><span class="result-label">最高温度</span><span class="result-value orange">38.5 ℃</span></div>
+                        <div class="result-item"><span class="result-label">火点数量</span><span class="result-value red" id="fireAnalysisCount">加载中...</span></div>
+                        <div class="result-item"><span class="result-label">预估面积</span><span class="result-value red" id="fireAnalysisArea">- 亩</span></div>
+                        <div class="result-item"><span class="result-label">风险等级</span><span class="result-value orange" id="fireAnalysisRisk">-</span></div>
+                        <div class="result-item"><span class="result-label">最高温度</span><span class="result-value orange" id="fireAnalysisTemp">- ℃</span></div>
                     </div>
                 </div></div>
             </div>
@@ -3159,6 +3159,11 @@ async function refreshDashboardStats() {
         setElText('dashPestCount', stats.pestCount);
         setElText('dashAbnormalCount', stats.abnormalCount);
         setElText('dashUnhandledCount', stats.unhandledCount);
+        // 火情分析面板
+        setElText('fireAnalysisCount', stats.fireCount + ' 处');
+        setElText('fireAnalysisArea', (stats.fireArea || 0) + ' 亩');
+        setElText('fireAnalysisRisk', stats.fireRisk || '-');
+        setElText('fireAnalysisTemp', (stats.fireMaxTemp || '-') + ' ℃');
         // 顶部统计卡片
         setElText('dashPatrolCount', stats.patrolCount);
         setElText('dashOnlineRangers', stats.onlineRangers);

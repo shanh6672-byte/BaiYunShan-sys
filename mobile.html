@@ -115,20 +115,25 @@ function authHeaders() {
     return h;
 }
 
-// Helper: extract waypoints array from routeGeometry (GeoJSON string)
+// Helper: extract waypoints array from routeGeometry/route_waypoints
 function extractWaypoints(task) {
-    if (!task.routeGeometry) return [];
-    try {
-        var geo = typeof task.routeGeometry === 'string' ? JSON.parse(task.routeGeometry) : task.routeGeometry;
-        if (geo && geo.type === 'LineString' && geo.coordinates) {
-            // GeoJSON coordinates are [lng, lat], convert to [lat, lng] for Leaflet
-            return geo.coordinates.map(function (c) { return [c[1], c[0]]; });
-        }
-        if (geo && geo.type === 'Point' && geo.coordinates) {
-            return [[geo.coordinates[1], geo.coordinates[0]]];
-        }
-        if (Array.isArray(geo)) return geo;
-    } catch (e) { console.warn('解析routeGeometry失败:', e); }
+    // 优先使用 route_waypoints（in-memory任务格式: [[lat,lng], ...]）
+    if (task.route_waypoints && Array.isArray(task.route_waypoints) && task.route_waypoints.length >= 2) {
+        return task.route_waypoints.map(function (wp) { return [wp[0], wp[1]]; });
+    }
+    // 其次使用 routeGeometry（DB任务GeoJSON格式）
+    if (task.routeGeometry) {
+        try {
+            var geo = typeof task.routeGeometry === 'string' ? JSON.parse(task.routeGeometry) : task.routeGeometry;
+            if (geo && geo.type === 'LineString' && geo.coordinates) {
+                return geo.coordinates.map(function (c) { return [c[1], c[0]]; });
+            }
+            if (geo && geo.type === 'Point' && geo.coordinates) {
+                return [[geo.coordinates[1], geo.coordinates[0]]];
+            }
+            if (Array.isArray(geo)) return geo;
+        } catch (e) { console.warn('解析routeGeometry失败:', e); }
+    }
     return [];
 }
 
@@ -151,12 +156,14 @@ function getMyTasks() {
     if (!currentRanger) return [];
     var rid = currentRanger.id;
     var rname = currentRanger.name || '';
+    var hlid = (typeof rid === 'number') ? 'HL' + String(rid).padStart(3, '0') : String(rid);
     return allTasks.filter(function (t) {
         // Match by rangerId (numeric) or rangerName (string)
         if (t.rangerId && rid && Number(t.rangerId) === Number(rid)) return true;
         if (t.rangerName && rname && t.rangerName === rname) return true;
-        // Fallback: check old members array format
-        if (t.members && t.members.indexOf(rid) !== -1) return true;
+        // In-memory tasks: check members array (HL001 format) and members_names
+        if (t.members && (t.members.indexOf(hlid) !== -1 || t.members.indexOf(String(rid)) !== -1)) return true;
+        if (t.members_names && rname && t.members_names.indexOf(rname) !== -1) return true;
         return false;
     });
 }

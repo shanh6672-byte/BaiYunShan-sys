@@ -118,11 +118,12 @@ const RealtimeService = {
                 this._throttledRefresh();
                 break;
             case 'fire_new':
-                // 新火情：自动添加到地图并刷新右侧栏
+                // 新火情：自动添加到地图并刷新右侧栏+仪表盘
                 console.log('[Realtime] 新火情事件:', msg.data);
                 if (typeof GeoServerLayers !== 'undefined' && msg.data) {
                     GeoServerLayers.addSingleFirePoint(msg.data);
                 }
+                if (typeof refreshDashboardStats === 'function') refreshDashboardStats();
                 break;
             case 'pest_new':
                 console.log('[Realtime] 新疫情事件:', msg.data);
@@ -135,6 +136,7 @@ const RealtimeService = {
                         if (map && GeoServerLayers._addMarkersToMap) GeoServerLayers._addMarkersToMap(map);
                     });
                 }
+                if (typeof refreshDashboardStats === 'function') refreshDashboardStats();
                 break;
             case 'abnormal_new':
                 console.log('[Realtime] 新异常事件:', msg.data);

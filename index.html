@@ -167,7 +167,6 @@
                 <a class="nav-item-tertiary" data-sub="sub-res-realtime" data-inner="inner-drone-rt">无人机监控</a>
                 <a class="nav-item-tertiary" data-sub="sub-res-realtime" data-inner="inner-history">历史轨迹</a>
             </div>
-            <a class="nav-item-secondary" data-sub="sub-res-coverage">巡护覆盖分析</a>
             <a class="nav-item-secondary has-children" data-sub="sub-res-task" data-inner="inner-task-mgmt">巡护任务管理</a>
             <div class="nav-tertiary-sub">
                 <a class="nav-item-tertiary" data-sub="sub-res-task" data-inner="inner-task-mgmt">任务管理</a>
@@ -327,14 +326,7 @@
         <div class="sub-page" id="sub-res-coverage">
             <div class="map-full-container">
                 <div id="resCoverageMap"></div>
-                <div class="float-panel narrow" id="coveragePanel">
-                    <div class="panel-card"><div class="card-header"><h3>巡护覆盖分析</h3></div><div class="card-body">
-            <div class="form-group"><label>分析时间范围</label><select class="select-full"><option>今日</option><option>近7天</option><option>近30天</option></select></div>
-            <button class="btn btn-primary btn-block">执行分析</button>
-            <div class="analysis-result" style="margin-top:14px;"><div class="result-item"><span class="result-label">巡护覆盖率</span><span class="result-value green">78.5%</span></div><div class="result-item"><span class="result-label">巡护盲区面积</span><span class="result-value orange">2,340 亩</span></div><div class="result-item"><span class="result-label">巡护完整度</span><span class="result-value blue">良好</span></div></div>
-            <div class="blind-area-list"><h4>盲区列表</h4><div class="blind-item"><span>一号林区东北角</span><span class="tag tag-red tag-sm">未覆盖</span></div><div class="blind-item"><span>三号林区西南侧</span><span class="tag tag-orange tag-sm">覆盖不足</span></div><div class="blind-item"><span>五号林区中部</span><span class="tag tag-red tag-sm">未覆盖</span></div></div>
-        </div></div>
-                </div>
+                <div class="float-panel narrow" id="coveragePanel"></div>
                 <button class="float-panel-toggle" data-target="coveragePanel">◀</button>
             </div>
         </div>
