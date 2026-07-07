@@ -1114,8 +1114,8 @@ def run_fvc_analysis():
     # 年份 → WCS coverage ID 映射及偏差值
     # GeoServer 上暂无 2022 FVC WCS coverage，通过对 2021 数据施加偏移模拟年份差异
     year_config = {
-        '2021': {'coverage': 'baiyunshan__fvc-2', 'bias': 0.0},
-        '2022': {'coverage': 'baiyunshan__fvc-2', 'bias': 0.04},  # +4% 改善
+        '2021': {'coverage': 'baiyunshan__fvc_2021', 'bias': 0.0},
+        '2022': {'coverage': 'baiyunshan__fvc_2022', 'bias': 0.0},
     }
     cfg = year_config.get(year)
     if not cfg:
@@ -1374,8 +1374,8 @@ def run_ndvi_analysis():
     # 年份 → WCS coverage ID 映射
     # NDVI-1(mean=0.378)为淡季影像，NDVI-2(mean=0.835)和NDVI(mean=0.743)为旺季
     coverage_map = {
-        '2021': 'baiyunshan__NDVI-2',   # 旺季影像，均值0.835
-        '2022': 'baiyunshan__NDVI',     # 旺季影像，均值0.743
+        '2021': 'baiyunshan__ndvi_2021',   # 裁剪后10m NDVI，均值~0.22
+        '2022': 'baiyunshan__ndvi_2022',   # 裁剪后10m NDVI，均值~0.20
     }
     coverage_id = coverage_map.get(year)
     if not coverage_id:

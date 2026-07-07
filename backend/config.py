@@ -23,5 +23,5 @@ class Config:
     GEOSERVER_WORKSPACE = 'baiyunshan'
 
     # 白云山林场中心坐标 (EPSG:4326)
-    FOREST_CENTER = [28.467, 119.922]
+    FOREST_CENTER = [28.5302, 119.9103]
     FOREST_BBOX = [119.854, 28.480, 119.966, 28.581]

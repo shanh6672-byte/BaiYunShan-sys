@@ -45,10 +45,10 @@ const ApiService = {
             guest: { password: 'guest', role: 'guest', name: '游客' }
         },
         // 【已禁用】旧贵阳Mock数据 — 已切换为浙江省丽水市白云山林场
-        // 地图中心已改为丽水 [28.467, 119.922]
+        // 白云山林场中心（DEM 范围中心：28.5302, 119.9103）
         // 边界/林区/点位数据由 ExperimentalLayerManager + ExperimentalPointFactory 基于 SHP 实时生成
         forestConfig: {
-            center: [28.467, 119.922],
+            center: [28.5302, 119.9103],
             boundary: []
         },
         compartments: [],
@@ -1548,9 +1548,9 @@ function initSpatialPage() {
                     <div class="form-group"><label>分辨率</label><select class="select-full" id="ndviResolution"><option>10m</option><option>20m</option><option>30m</option></select></div>
                     <div class="form-group"><label>分类阈值设置</label>
                         <div class="fvc-threshold-group">
-                            <div class="threshold-item"><span class="threshold-label">高植被</span><input type="number" class="input-sm" value="0.70" step="0.05" min="0" max="1" id="ndviHigh"/><span class="threshold-unit">≥</span></div>
-                            <div class="threshold-item"><span class="threshold-label">中植被</span><input type="number" class="input-sm" value="0.40" step="0.05" min="0" max="1" id="ndviMid"/><span class="threshold-unit">≥</span></div>
-                            <div class="threshold-item"><span class="threshold-label">低植被</span><input type="number" class="input-sm" value="0.15" step="0.05" min="0" max="1" id="ndviLow"/><span class="threshold-unit">≥</span></div>
+                            <div class="threshold-item"><span class="threshold-label">高植被</span><input type="range" value="0.70" min="0" max="1" step="0.01" id="ndviHigh" oninput="document.getElementById('ndviHighVal').textContent=parseFloat(this.value).toFixed(2)"/><span id="ndviHighVal" style="font-size:11px;min-width:30px;">0.70</span></div>
+                            <div class="threshold-item"><span class="threshold-label">中植被</span><input type="range" value="0.40" min="0" max="1" step="0.01" id="ndviMid" oninput="document.getElementById('ndviMidVal').textContent=parseFloat(this.value).toFixed(2)"/><span id="ndviMidVal" style="font-size:11px;min-width:30px;">0.40</span></div>
+                            <div class="threshold-item"><span class="threshold-label">低植被</span><input type="range" value="0.15" min="0" max="1" step="0.01" id="ndviLow" oninput="document.getElementById('ndviLowVal').textContent=parseFloat(this.value).toFixed(2)"/><span id="ndviLowVal" style="font-size:11px;min-width:30px;">0.15</span></div>
                         </div>
                     </div>
                     <button class="btn btn-primary btn-block" onclick="runNdviAnalysis()">执行NDVI分析</button>
@@ -1597,9 +1597,9 @@ function initSpatialPage() {
                     <div class="form-group"><label>分辨率</label><select class="select-full" id="fvcResolution"><option>10m</option><option>20m</option><option>30m</option></select></div>
                     <div class="form-group"><label>分类阈值设置</label>
                         <div class="fvc-threshold-group">
-                            <div class="threshold-item"><span class="threshold-label">高覆盖</span><input type="number" class="input-sm" value="0.75" step="0.05" min="0" max="1" id="fvcHigh"/><span class="threshold-unit">≥</span></div>
-                            <div class="threshold-item"><span class="threshold-label">中覆盖</span><input type="number" class="input-sm" value="0.45" step="0.05" min="0" max="1" id="fvcMid"/><span class="threshold-unit">≥</span></div>
-                            <div class="threshold-item"><span class="threshold-label">低覆盖</span><input type="number" class="input-sm" value="0.15" step="0.05" min="0" max="1" id="fvcLow"/><span class="threshold-unit">≥</span></div>
+                            <div class="threshold-item"><span class="threshold-label">高覆盖</span><input type="range" value="0.75" min="0" max="1" step="0.01" id="fvcHigh" oninput="document.getElementById('fvcHighVal').textContent=parseFloat(this.value).toFixed(2)"/><span id="fvcHighVal" style="font-size:11px;min-width:30px;">0.75</span></div>
+                            <div class="threshold-item"><span class="threshold-label">中覆盖</span><input type="range" value="0.45" min="0" max="1" step="0.01" id="fvcMid" oninput="document.getElementById('fvcMidVal').textContent=parseFloat(this.value).toFixed(2)"/><span id="fvcMidVal" style="font-size:11px;min-width:30px;">0.45</span></div>
+                            <div class="threshold-item"><span class="threshold-label">低覆盖</span><input type="range" value="0.15" min="0" max="1" step="0.01" id="fvcLow" oninput="document.getElementById('fvcLowVal').textContent=parseFloat(this.value).toFixed(2)"/><span id="fvcLowVal" style="font-size:11px;min-width:30px;">0.15</span></div>
                         </div>
                     </div>
                     <button class="btn btn-primary btn-block" onclick="runFvcAnalysis()">执行FVC分析</button>
@@ -2627,7 +2627,7 @@ const DisasterPanel = {
             </div>
             <div style="padding:16px 20px;">
                 <div class="form-group"><label>名称</label><input type="text" id="upName" placeholder="如：一号林区火情"/></div>
-                <div class="form-row"><div class="form-group half"><label>纬度(lat)</label><input type="number" id="upLat" value="28.467" step="0.0001"/></div><div class="form-group half"><label>经度(lng)</label><input type="number" id="upLng" value="119.922" step="0.0001"/></div></div>
+                <div class="form-row"><div class="form-group half"><label>纬度(lat)</label><input type="number" id="upLat" value="28.5302" step="0.0001"/></div><div class="form-group half"><label>经度(lng)</label><input type="number" id="upLng" value="119.9103" step="0.0001"/></div></div>
                 <div class="form-group"><label>上报人</label><input type="text" id="upReporter" placeholder="如：张建国/UAV-01"/></div>
                 ${extraFields}
                 <div class="form-group"><label>描述</label><textarea id="upDesc" rows="2" placeholder="现场描述..."></textarea></div>
