@@ -1628,6 +1628,9 @@ var Patrol = {
     // ==================== UI — 巡护日志 ====================
     _renderLogPanel: async function () {
         var c = document.getElementById('inner-log'); if (!c) return;
+        // 拉宽面板以完整展示表头
+        var taskPanel = document.getElementById('taskPanel');
+        if (taskPanel) { taskPanel.style.width = '900px'; taskPanel.style.maxWidth = '95vw'; }
         await this._loadLogs(); await this._loadTasks();
         var self = this;
 
@@ -2025,7 +2028,12 @@ var Patrol = {
                     if (id === 'inner-ranger') self._renderRangerLedger();
                     if (id === 'inner-drone') self._renderDroneLedger();
                     if (id === 'inner-team') self._renderTeamLedger();
-                    if (id === 'inner-log') self._renderLogPanel();
+                    if (id === 'inner-log') { self._renderLogPanel(); }
+                    else {
+                        // 离开日志标签时恢复面板宽度
+                        var tp = document.getElementById('taskPanel');
+                        if (tp) { tp.style.width = ''; tp.style.maxWidth = ''; }
+                    }
                     if (id === 'inner-route') self._renderRoutePlanning();
                     if (id === 'inner-route-mgmt') self._renderRouteMgmt();
                     if (id === 'inner-history') self._renderHistoryPanel();

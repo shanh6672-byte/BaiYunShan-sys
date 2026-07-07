@@ -333,8 +333,15 @@ class FireEvent(db.Model):
     reported_at = db.Column(db.String(30), default='')
 
     def to_dict(self):
+        # 使用 name 作为展示编号（上报时的真实名称），空 name 时用自增 F{id}
+        import re
+        display_id = self.name if (self.name and self.name.strip()) else f'F{self.id:03d}'
+        # 种子数据 name="F001号火情" → 提取 F001
+        m = re.match(r'(F\d+)', display_id)
+        if m:
+            display_id = m.group(1)
         return {
-            'id': f'F{self.id:03d}',
+            'id': display_id,
             'name': self.name,
             'lat': self.lat,
             'lng': self.lng,

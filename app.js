@@ -1260,20 +1260,41 @@ function resetToInitialState() {
         GeoServerLayers.init().catch(function(){});
     }
 
-    // 5. 重置巡护模块状态
+    // 5. 重置巡护模块状态 + 清除所有路径缓存
     if (typeof Patrol !== 'undefined' && Patrol.state) {
-        // 清空轨迹缓冲
+        var pmap = Patrol._getActiveMap ? Patrol._getActiveMap() : null;
+        // 清除历史轨迹查询残留
+        if (typeof Patrol._clearQueryTrack === 'function') Patrol._clearQueryTrack();
+        if (Patrol._qTrackLine && pmap) pmap.removeLayer(Patrol._qTrackLine);
+        if (Patrol._qTrackMarks && pmap) pmap.removeLayer(Patrol._qTrackMarks);
+        Patrol._qTrackLine = null;
+        Patrol._qTrackMarks = null;
+        // 清除轨迹缓冲
         Patrol.state._trackBuffer = [];
         Patrol.state._trackFlushTimer = 0;
-        // 清空实时轨迹线
+        // 清除实时轨迹线
         Object.keys(Patrol.state.realtimeTrackLines || {}).forEach(function(k) {
-            var map = Patrol._getActiveMap ? Patrol._getActiveMap() : null;
-            if (map && Patrol.state.realtimeTrackLines[k].line) {
-                map.removeLayer(Patrol.state.realtimeTrackLines[k].line);
+            if (pmap && Patrol.state.realtimeTrackLines[k].line) {
+                pmap.removeLayer(Patrol.state.realtimeTrackLines[k].line);
             }
         });
         Patrol.state.realtimeTrackLines = {};
-        // 清空路径和进度
+        // 清除路线预览线
+        if (Patrol.state._routeDrawing && Patrol.state._routeDrawing.polyline && pmap) {
+            pmap.removeLayer(Patrol.state._routeDrawing.polyline);
+        }
+        Patrol.state._routeDrawing = null;
+        // 清除覆盖分析图层
+        (Patrol.state._coverageLayers || []).forEach(function(layer) {
+            if (pmap) try { pmap.removeLayer(layer); } catch(e) {}
+        });
+        Patrol.state._coverageLayers = [];
+        // 清除回放标记
+        if (Patrol.state._playMarker && pmap) pmap.removeLayer(Patrol.state._playMarker);
+        Patrol.state._playMarker = null;
+        Patrol.state._playCoords = null;
+        Patrol.state._isPlaying = false;
+        // 清除动画进度和路径
         Patrol.state._animProgress = {};
         Patrol.state.simPaths = {};
         // 重新生成路径并启动
@@ -1705,11 +1726,11 @@ function initDisasterPage() {
             <div class="risk-events">
                 <h4>风险事件列表</h4>
                 <div class="risk-event-list">
-                    <div class="risk-event-item"><span class="re-dot high"></span><span class="re-title">RW001 森林火灾</span><span class="re-area">三号林区</span><span class="re-score high">91分</span></div>
-                    <div class="risk-event-item"><span class="re-dot high"></span><span class="re-title">RW002 森林火灾</span><span class="re-area">一号林区</span><span class="re-score high">82分</span></div>
-                    <div class="risk-event-item"><span class="re-dot mid"></span><span class="re-title">RW003 林业有害生物</span><span class="re-area">二号林区</span><span class="re-score mid">67分</span></div>
-                    <div class="risk-event-item"><span class="re-dot mid"></span><span class="re-title">RW004 气象灾害</span><span class="re-area">一号林区</span><span class="re-score mid">63分</span></div>
-                    <div class="risk-event-item"><span class="re-dot low"></span><span class="re-title">RW005 地质灾害</span><span class="re-area">四号林区</span><span class="re-score low">54分</span></div>
+                    <div class="risk-event-item"><span class="re-dot high"></span><span class="re-title">RW001 森林火灾</span><span class="re-area">三号林区</span><span class="re-score high">91%</span></div>
+                    <div class="risk-event-item"><span class="re-dot high"></span><span class="re-title">RW002 森林火灾</span><span class="re-area">一号林区</span><span class="re-score high">82%</span></div>
+                    <div class="risk-event-item"><span class="re-dot mid"></span><span class="re-title">RW003 林业有害生物</span><span class="re-area">二号林区</span><span class="re-score mid">67%</span></div>
+                    <div class="risk-event-item"><span class="re-dot mid"></span><span class="re-title">RW004 气象灾害</span><span class="re-area">一号林区</span><span class="re-score mid">63%</span></div>
+                    <div class="risk-event-item"><span class="re-dot low"></span><span class="re-title">RW005 地质灾害</span><span class="re-area">四号林区</span><span class="re-score low">54%</span></div>
                 </div>
             </div>
         </div>
@@ -2161,7 +2182,7 @@ function runRiskAssessment() {
                 html += '<div class=\"risk-event-item\"><span class=\"re-dot ' + lvl + '\"></span>';
                 html += '<span class=\"re-title\">' + rwId + ' ' + ev.type + '</span>';
                 html += '<span class=\"re-area\">' + ev.area + '</span>';
-                html += '<span class=\"re-score ' + lvl + '\">' + ev.score + '分</span></div>';
+                html += '<span class=\"re-score ' + lvl + '\">' + ev.score + '%</span></div>';
             });
             if (!html) html = '<div style=\"color:#8ba4bc;padding:12px;text-align:center;\">当前筛选条件下无风险事件</div>';
             eventContainer.innerHTML = html;

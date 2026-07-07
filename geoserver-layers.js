@@ -315,15 +315,15 @@ const GeoServerLayers = {
 
     // ===== NDVI / FVC 栅格 WMS 直接加载（无需代理，tile图片无跨域限制） =====
     _rasterLayer: null,
-    _geoserverWms: 'http://39.97.254.191:8080/geoserver/baiyunshan/wms',
+    _geoserverWms: '/geoserver/baiyunshan/wms',
 
     /** 加载NDVI WMS栅格到空间分析地图 */
     addNdviLayer(source) {
         const map = MapFacade.getMap('monSpatialMap') || MapFacade.getMap();
         if (!map || typeof L === 'undefined') { console.warn('[GeoLayers] 地图不可用'); return; }
         this._removeRasterLayer();
-        // 图层名映射: NDVI=原始, NDVI-21=2021, NDVI_1=2022
-        const names = { 'NDVI': 'NDVI', 'NDVI2': 'NDVI-21', 'NDVI_1': 'NDVI_1' };
+        // 图层名映射 → GeoServer 实际 coverage: NDVI, NDVI-1, NDVI-2
+        const names = { 'NDVI': 'NDVI', 'NDVI2': 'NDVI-2', 'NDVI_1': 'NDVI-1' };
         const layerName = 'baiyunshan:' + (names[source] || source);
         console.log('[GeoLayers] 加载NDVI: ' + layerName);
         this._rasterLayer = L.tileLayer.wms(this._geoserverWms, {
@@ -337,8 +337,8 @@ const GeoServerLayers = {
         const map = MapFacade.getMap('monSpatialMap') || MapFacade.getMap();
         if (!map || typeof L === 'undefined') { console.warn('[GeoLayers] 地图不可用'); return; }
         this._removeRasterLayer();
-        // fvc_1=2022, fvc2=2021
-        const names = { 'fvc_1': 'fvc_1', 'fvc_2': 'fvc2' };
+        // GeoServer 实际 coverage: fvc-1, fvc-2（注意有连字符）
+        const names = { 'fvc_1': 'fvc-1', 'fvc_2': 'fvc-2' };
         const layerName = 'baiyunshan:' + (names[source] || source);
         console.log('[GeoLayers] 加载FVC: ' + layerName);
         this._rasterLayer = L.tileLayer.wms(this._geoserverWms, {
