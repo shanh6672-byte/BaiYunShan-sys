@@ -230,9 +230,14 @@ const GeoServerLayers = {
         function bind(k, cbSel, sliderSel) {
             var cb = document.querySelector(cbSel);
             if (cb) cb.addEventListener('change', function() {
-                var maps = Object.values(MapFacade._instances);
-                if (this.checked) maps.forEach(function(m) { if (self._layers[k] && !m.hasLayer(self._layers[k])) m.addLayer(self._layers[k]); });
-                else maps.forEach(function(m) { if (self._layers[k] && m.hasLayer(self._layers[k])) m.removeLayer(self._layers[k]); });
+                var checked = this.checked;
+                function apply() {
+                    var maps = Object.values(MapFacade._instances);
+                    if (maps.length === 0) { setTimeout(apply, 300); return; }
+                    if (checked) maps.forEach(function(m) { if (self._layers[k] && !m.hasLayer(self._layers[k])) m.addLayer(self._layers[k]); });
+                    else maps.forEach(function(m) { if (self._layers[k] && m.hasLayer(self._layers[k])) m.removeLayer(self._layers[k]); });
+                }
+                apply();
             });
             var sl = document.querySelector(sliderSel);
             if (sl) sl.addEventListener('input', function() { if (self._layers[k]) self._layers[k].setOpacity(this.value/100); });
@@ -437,12 +442,70 @@ const GeoServerLayers = {
     _rasterLayer: null,
     _geoserverWms: '/geoserver/baiyunshan/wms',
 
+    /** 按用户阈值分级渲染 NDVI — 和 DEM 一样走瓦片加载，只贴到分析地图 */
+    addNdviClassified: function(source, thresholds) {
+        // 只用一个地图实例（TileLayer 只能 attach 到一个 map）
+        var map = MapFacade.getMap('monSpatialMap') || Object.values(MapFacade._instances)[0];
+        if (!map || typeof L === 'undefined') { console.warn('[GeoLayers] 无可用地图'); return; }
+        this._removeRasterLayer();
+
+        var layerMap = { 'NDVI2': 'ndvi_2021', 'NDVI_1': 'ndvi_2022' };
+        var layerName = 'baiyunshan:' + (layerMap[source] || 'ndvi_2021');
+        var l = thresholds.low, m = thresholds.mid, h = thresholds.high;
+
+        // 分级着色 SLD（和 curl 测试用的一样）
+        var sld =
+            '<?xml version="1.0" encoding="UTF-8"?>' +
+            '<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld">' +
+            '<NamedLayer><Name>ndvi</Name><UserStyle><Name>ndvi</Name>' +
+            '<FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap>' +
+            '<ColorMapEntry color="#8B7355" quantity="-0.5"/>' +
+            '<ColorMapEntry color="#D4A017" quantity="' + l + '"/>' +
+            '<ColorMapEntry color="#7CCD7C" quantity="' + m + '"/>' +
+            '<ColorMapEntry color="#2E7D32" quantity="' + h + '"/>' +
+            '<ColorMapEntry color="#1B5E20" quantity="1.0"/>' +
+            '</ColorMap>' +
+            '<OpacityMapping><PixelOpacity>' +
+            '<ColorMapEntry quantity="-9999" opacity="0"/>' +
+            '<ColorMapEntry quantity="-0.5" opacity="1"/>' +
+            '</PixelOpacity></OpacityMapping>' +
+            '</RasterSymbolizer></Rule></FeatureTypeStyle>' +
+            '</UserStyle></NamedLayer></StyledLayerDescriptor>';
+
+        var sldEnc = encodeURIComponent(sld);
+        console.log('[GeoLayers] 分级NDVI: ' + layerName + ' 阈值=' + l + '/' + m + '/' + h);
+
+        // 和 DEM 一样用 GCJ02CorrectedWMS，然后覆写 getTileUrl 拼 SLD_BODY
+        var ndviLayer = new L.TileLayer.GCJ02CorrectedWMS(this._geoserverWms, {
+            layers: layerName,
+            format: 'image/png', transparent: true,
+            version: '1.3.0', crs: L.CRS.EPSG4326,
+            uppercase: true, maxZoom: 20, opacity: 0.7,
+        });
+        ndviLayer._sldEnc = sldEnc;
+        ndviLayer.getTileUrl = function(coords) {
+            var url = L.TileLayer.GCJ02CorrectedWMS.prototype.getTileUrl.call(this, coords);
+            return url + '&SLD_BODY=' + this._sldEnc;
+        };
+        ndviLayer.addTo(map);
+        this._rasterLayer = ndviLayer;
+
+        // 关闭按钮
+        var self = this;
+        if (this._ndviCloseBtn) this._ndviCloseBtn.remove();
+        var btn = document.createElement('button');
+        btn.textContent = '✕ 关闭NDVI';
+        btn.style.cssText = 'position:absolute;top:8px;right:8px;z-index:9999;padding:4px 12px;background:#e53935;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;';
+        btn.onclick = function() { self._removeRasterLayer(); btn.remove(); };
+        map.getContainer().appendChild(btn);
+        this._ndviCloseBtn = btn;
+    },
+
     /** 加载NDVI WMS栅格到空间分析地图 */
     addNdviLayer(source) {
         const map = MapFacade.getMap('monSpatialMap') || MapFacade.getMap();
         if (!map || typeof L === 'undefined') { console.warn('[GeoLayers] 地图不可用'); return; }
         this._removeRasterLayer();
-        // 图层名映射 → GeoServer 实际 coverage: NDVI, NDVI-1, NDVI-2
         const names = { 'NDVI': 'NDVI', 'NDVI2': 'NDVI-2', 'NDVI_1': 'NDVI-1' };
         const layerName = 'baiyunshan:' + (names[source] || source);
         console.log('[GeoLayers] 加载NDVI: ' + layerName);
@@ -469,9 +532,13 @@ const GeoServerLayers = {
 
     _removeRasterLayer() {
         if (this._rasterLayer) {
-            const map = MapFacade.getMap('monSpatialMap') || MapFacade.getMap();
-            if (map) map.removeLayer(this._rasterLayer);
+            var layer = this._rasterLayer;
+            // TileLayer 只 attached 到一个 map，直接遍历移除
+            Object.values(MapFacade._instances).forEach(function(m) {
+                if (m.hasLayer(layer)) m.removeLayer(layer);
+            });
             this._rasterLayer = null;
         }
+        if (this._ndviCloseBtn) { this._ndviCloseBtn.remove(); this._ndviCloseBtn = null; }
     },
 };

@@ -2848,9 +2848,9 @@ function runNdviAnalysis() {
         low:  (ndviLowEl  && parseFloat(ndviLowEl.value))  || 0.15
     };
 
-    // 加载WMS栅格到地图
+    // 按阈值分级渲染 NDVI 并贴到地图
     if (typeof GeoServerLayers !== 'undefined') {
-        GeoServerLayers.addNdviLayer(source);
+        GeoServerLayers.addNdviClassified(source, thresholds);
     }
 
     // 调用后端 API 获取真实分析结果
