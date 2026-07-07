@@ -1525,6 +1525,7 @@ function initSpatialPage() {
     </div>
     <div class="map-full-container">
         <div id="monSpatialMap"></div>
+        <div id="analysisMap" style="display:none;"></div>
         <div class="float-panel" id="spatialPanel">
             <div class="inner-tab active" id="inner-fire-analysis">
                 <div class="panel-card"><div class="card-header"><h3>火情分析</h3></div><div class="card-body">
@@ -1643,6 +1644,14 @@ function initSpatialPage() {
     </div>`;
     setTimeout(async () => {
         MapFacade.create('monSpatialMap', { center: forestCenter });
+        // 独立的 NDVI/FVC 分析结果地图
+        window._analysisMap = L.map('analysisMap', {
+            center: forestCenter, zoom: 13, maxZoom: 20, minZoom: 10,
+            zoomControl: false, attributionControl: false
+        });
+        L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
+            subdomains: '1234', maxZoom: 18
+        }).addTo(window._analysisMap);
         MapFacade.invalidateSize();
         layoutFloatTabItems();
 

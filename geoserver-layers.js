@@ -224,23 +224,26 @@ const GeoServerLayers = {
         console.log('[GeoLayers] FVC 2022已创建');
     },
 
-    /** 绑定专题图层 + 巡护轨迹侧边栏控制 */
+    /** 绑定专题图层 + 巡护轨迹侧边栏控制（延迟确保 DOM + 地图就绪） */
     _bindLayerControls() {
         var self = this;
         function bind(k, cbSel, sliderSel) {
-            var cb = document.querySelector(cbSel);
-            if (cb) cb.addEventListener('change', function() {
-                var checked = this.checked;
-                function apply() {
-                    var maps = Object.values(MapFacade._instances);
-                    if (maps.length === 0) { setTimeout(apply, 300); return; }
-                    if (checked) maps.forEach(function(m) { if (self._layers[k] && !m.hasLayer(self._layers[k])) m.addLayer(self._layers[k]); });
-                    else maps.forEach(function(m) { if (self._layers[k] && m.hasLayer(self._layers[k])) m.removeLayer(self._layers[k]); });
-                }
-                apply();
-            });
-            var sl = document.querySelector(sliderSel);
-            if (sl) sl.addEventListener('input', function() { if (self._layers[k]) self._layers[k].setOpacity(this.value/100); });
+            function doBind() {
+                var cb = document.querySelector(cbSel);
+                if (!cb) { setTimeout(doBind, 500); return; }  // DOM 还没渲染
+                cb.addEventListener('change', function() {
+                    var checked = this.checked;
+                    (function apply(retry) {
+                        var maps = Object.values(MapFacade._instances);
+                        if (maps.length === 0 && retry < 20) { setTimeout(function() { apply(retry+1); }, 500); return; }
+                        if (checked) maps.forEach(function(m) { if (self._layers[k] && !m.hasLayer(self._layers[k])) m.addLayer(self._layers[k]); });
+                        else maps.forEach(function(m) { if (self._layers[k] && m.hasLayer(self._layers[k])) m.removeLayer(self._layers[k]); });
+                    })(0);
+                });
+                var sl = document.querySelector(sliderSel);
+                if (sl) sl.addEventListener('input', function() { if (self._layers[k]) self._layers[k].setOpacity(this.value/100); });
+            }
+            doBind();
         }
         bind('dem', '#rasterLayerGroup input[data-layer="dem"]', '#rasterLayerGroup input.layer-opacity[data-layer="dem"]');
         bind('ndvi', '#rasterLayerGroup input[data-layer="ndvi_2021"]', '#rasterLayerGroup input.layer-opacity[data-layer="ndvi_2021"]');
@@ -442,63 +445,60 @@ const GeoServerLayers = {
     _rasterLayer: null,
     _geoserverWms: '/geoserver/baiyunshan/wms',
 
-    /** 按用户阈值分级渲染 NDVI — 和 DEM 一样走瓦片加载，只贴到分析地图 */
+    /**
+     * NDVI 分级渲染 —— 独立分析地图 + 8088 分类 API
+     */
     addNdviClassified: function(source, thresholds) {
-        // 只用一个地图实例（TileLayer 只能 attach 到一个 map）
-        var map = MapFacade.getMap('monSpatialMap') || Object.values(MapFacade._instances)[0];
-        if (!map || typeof L === 'undefined') { console.warn('[GeoLayers] 无可用地图'); return; }
+        // 按需创建分析地图（只创建一次）
+        if (!window._analysisMap && typeof L !== 'undefined') {
+            var c = document.getElementById('analysisMap');
+            if (!c) { console.warn('[GeoLayers] analysisMap 容器不存在'); return; }
+            c.style.display = 'block';
+            window._analysisMap = L.map('analysisMap', {
+                center: [28.5302, 119.9103], zoom: 14, maxZoom: 20, minZoom: 10
+            });
+            L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
+                subdomains: '1234', maxZoom: 18
+            }).addTo(window._analysisMap);
+            console.log('[GeoLayers] 分析地图已创建');
+        }
+        var map = window._analysisMap;
+        if (!map) { console.warn('[GeoLayers] 分析地图不可用'); return; }
         this._removeRasterLayer();
 
-        var layerMap = { 'NDVI2': 'ndvi_2021', 'NDVI_1': 'ndvi_2022' };
-        var layerName = 'baiyunshan:' + (layerMap[source] || 'ndvi_2021');
-        var l = thresholds.low, m = thresholds.mid, h = thresholds.high;
+        var yearMap = { 'NDVI2': '2021', 'NDVI_1': '2022' };
+        var year = yearMap[source] || '2021';
 
-        // 分级着色 SLD（和 curl 测试用的一样）
-        var sld =
-            '<?xml version="1.0" encoding="UTF-8"?>' +
-            '<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld">' +
-            '<NamedLayer><Name>ndvi</Name><UserStyle><Name>ndvi</Name>' +
-            '<FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap>' +
-            '<ColorMapEntry color="#8B7355" quantity="-0.5"/>' +
-            '<ColorMapEntry color="#D4A017" quantity="' + l + '"/>' +
-            '<ColorMapEntry color="#7CCD7C" quantity="' + m + '"/>' +
-            '<ColorMapEntry color="#2E7D32" quantity="' + h + '"/>' +
-            '<ColorMapEntry color="#1B5E20" quantity="1.0"/>' +
-            '</ColorMap>' +
-            '<OpacityMapping><PixelOpacity>' +
-            '<ColorMapEntry quantity="-9999" opacity="0"/>' +
-            '<ColorMapEntry quantity="-0.5" opacity="1"/>' +
-            '</PixelOpacity></OpacityMapping>' +
-            '</RasterSymbolizer></Rule></FeatureTypeStyle>' +
-            '</UserStyle></NamedLayer></StyledLayerDescriptor>';
-
-        var sldEnc = encodeURIComponent(sld);
-        console.log('[GeoLayers] 分级NDVI: ' + layerName + ' 阈值=' + l + '/' + m + '/' + h);
-
-        // 和 DEM 一样用 GCJ02CorrectedWMS，然后覆写 getTileUrl 拼 SLD_BODY
-        var ndviLayer = new L.TileLayer.GCJ02CorrectedWMS(this._geoserverWms, {
-            layers: layerName,
-            format: 'image/png', transparent: true,
-            version: '1.3.0', crs: L.CRS.EPSG4326,
-            uppercase: true, maxZoom: 20, opacity: 0.7,
-        });
-        ndviLayer._sldEnc = sldEnc;
-        ndviLayer.getTileUrl = function(coords) {
-            var url = L.TileLayer.GCJ02CorrectedWMS.prototype.getTileUrl.call(this, coords);
-            return url + '&SLD_BODY=' + this._sldEnc;
-        };
-        ndviLayer.addTo(map);
-        this._rasterLayer = ndviLayer;
-
-        // 关闭按钮
         var self = this;
-        if (this._ndviCloseBtn) this._ndviCloseBtn.remove();
-        var btn = document.createElement('button');
-        btn.textContent = '✕ 关闭NDVI';
-        btn.style.cssText = 'position:absolute;top:8px;right:8px;z-index:9999;padding:4px 12px;background:#e53935;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;';
-        btn.onclick = function() { self._removeRasterLayer(); btn.remove(); };
-        map.getContainer().appendChild(btn);
-        this._ndviCloseBtn = btn;
+        fetch('http://localhost:8088/api/classify-ndvi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year: year, high_threshold: thresholds.high, medium_threshold: thresholds.mid, low_threshold: thresholds.low })
+        })
+        .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+        .then(function(result) {
+            var data = result.data;
+            if (!result.ok || data.error) { alert('NDVI分析失败: ' + (data.error || '未知错误')); return; }
+            console.log('[GeoLayers] 分级NDVI完成 ' + data.width + 'x' + data.height);
+
+            // 切成分析地图
+            var mainEl = document.getElementById('monSpatialMap');
+            var anaEl = document.getElementById('analysisMap');
+            if (mainEl) mainEl.style.display = 'none';
+            if (anaEl) anaEl.style.display = 'block';
+            setTimeout(function() { map.invalidateSize(); }, 100);
+
+            var b = data.bounds;
+            var bounds = [[b.south, b.west], [b.north, b.east]];
+            if (typeof CoordTransform !== 'undefined') {
+                var sw = CoordTransform.wgs84ToGcj02(b.west, b.south);
+                var ne = CoordTransform.wgs84ToGcj02(b.east, b.north);
+                if (sw && ne) bounds = [[sw[1], sw[0]], [ne[1], ne[0]]];
+            }
+            self._rasterLayer = L.imageOverlay('data:image/png;base64,' + data.image, bounds, { opacity: 0.8 }).addTo(map);
+            map.fitBounds(bounds, { padding: [30, 30] });
+        })
+        .catch(function(err) { alert('网络错误: ' + err.message); });
     },
 
     /** 加载NDVI WMS栅格到空间分析地图 */
@@ -532,13 +532,16 @@ const GeoServerLayers = {
 
     _removeRasterLayer() {
         if (this._rasterLayer) {
-            var layer = this._rasterLayer;
-            // TileLayer 只 attached 到一个 map，直接遍历移除
-            Object.values(MapFacade._instances).forEach(function(m) {
-                if (m.hasLayer(layer)) m.removeLayer(layer);
-            });
+            var map = window._analysisMap;
+            if (map && map.hasLayer(this._rasterLayer)) map.removeLayer(this._rasterLayer);
             this._rasterLayer = null;
         }
+        // 恢复主地图显示
+        var m = document.getElementById('monSpatialMap');
+        var a = document.getElementById('analysisMap');
+        if (m) m.style.display = '';
+        if (a) a.style.display = 'none';
+        if (window._analysisMap) window._analysisMap.invalidateSize();
         if (this._ndviCloseBtn) { this._ndviCloseBtn.remove(); this._ndviCloseBtn = null; }
     },
 };

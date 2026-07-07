@@ -2793,6 +2793,24 @@ def serve_static_proto(filename):
         return flask.send_file(filepath)
     return flask.send_file(os.path.join(PROTOTYPE_DIR, 'index.html'))
 
+# ========== NDVI 阈值分类渲染（代理到 8088） ==========
+@app.route('/api/classify-ndvi', methods=['POST'])
+@jwt_required()
+def classify_ndvi():
+    """代理到 webgis 服务器(8088)的 classify-ndvi，它已有完整的 rasterio+numpy 处理逻辑"""
+    import requests as req
+    try:
+        resp = req.post(
+            'http://localhost:8088/api/classify-ndvi',
+            json=request.get_json(),
+            headers={'Content-Type': 'application/json'},
+            timeout=90
+        )
+        return resp.content, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'application/json')}
+    except Exception as e:
+        return jsonify({'error': f'8088 代理失败: {str(e)}'}), 502
+
+
 # ========== 启动 ==========
 
 if __name__ == '__main__':
