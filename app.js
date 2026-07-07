@@ -2,7 +2,7 @@
 // 以后接入后端时，只需将 USE_MOCK 改为 false，并设置 BASE_URL 即可
 const ApiService = {
     USE_MOCK: false,
-    BASE_URL: 'http://localhost:5051',
+    BASE_URL: '',
 
     _getToken() {
         const saved = localStorage.getItem('fps_token');
@@ -1248,11 +1248,14 @@ function resetToInitialState() {
     if (bmSel) { bmSel.value = '高德影像'; switchBasemap(); }
 
     // 3. 恢复图层管理checkbox默认状态
-    var defaults = { forestBoundary: true, subCompartments: true, rangers: true, drones: true, fires: true, diseases: true };
+    var defaults = { forestBoundary: true, subCompartments: true, rangers: true, drones: true, patrolRoutes: true, fires: true, diseases: true };
     Object.keys(defaults).forEach(function(k) {
         var cb = document.querySelector('#businessLayerGroup input[data-layer="' + k + '"]');
         if (cb && cb.checked !== defaults[k]) { cb.checked = defaults[k]; cb.dispatchEvent(new Event('change')); }
     });
+    // DEM/NDVI 默认关闭
+    var demCb = document.querySelector('#rasterLayerGroup input[data-layer="dem"]');
+    if (demCb && demCb.checked) { demCb.checked = false; demCb.dispatchEvent(new Event('change')); }
 
     // 4. 重新加载GeoServer图层
     if (typeof GeoServerLayers !== 'undefined') {

@@ -1,6 +1,30 @@
 // ==================== GeoServer 真实图层加载器 ====================
 // 从 GeoServer WFS 加载数据，经 GCJ-02 坐标转换后与高德/天地图底图对齐
 
+/**
+ * GCJ-02 坐标修正 WMS 瓦片图层
+ * 底图是高德(GCJ-02)，GeoServer 栅格是 WGS-84(EPSG:4326)
+ * 发送 WMS 请求前将 bbox 从 GCJ-02 逆转为 WGS-84
+ */
+if (typeof L !== 'undefined') {
+    L.TileLayer.GCJ02CorrectedWMS = L.TileLayer.WMS.extend({
+        getTileUrl: function(coords) {
+            var url = L.TileLayer.WMS.prototype.getTileUrl.call(this, coords);
+            if (typeof CoordTransform === 'undefined') return url;
+            var m = url.match(/[&?]bbox=([^&]+)/i);
+            if (!m) return url;
+            var p = m[1].split(',');
+            var south = parseFloat(p[0]), west = parseFloat(p[1]);
+            var north = parseFloat(p[2]), east = parseFloat(p[3]);
+            var sw = CoordTransform.gcj02ToWgs84(west, south);
+            var ne = CoordTransform.gcj02ToWgs84(east, north);
+            if (!sw || !ne) return url;
+            var fixed = [sw[1].toFixed(8), sw[0].toFixed(8), ne[1].toFixed(8), ne[0].toFixed(8)].join(',');
+            return url.replace(m[1], fixed);
+        }
+    });
+}
+
 const GeoServerLayers = {
     _loaded: false,
     _layers: {},  // Leaflet GeoJSON layers
@@ -14,6 +38,11 @@ const GeoServerLayers = {
             await this._loadBoundaryAligned();
             await this._loadCompartments();
             this._loadDem();
+            this._loadNdvi();
+            this._loadNdvi2022();
+            this._loadFvc();
+            this._loadFvc2022();
+            this._bindLayerControls();
             await this._loadApiMarkers();
             await this._loadFirePoints();
             await this._loadPestPoints();
@@ -136,17 +165,103 @@ const GeoServerLayers = {
         }
     },
 
-    /** 加载DEM数字高程模型WMS图层（色带渲染，不拦截鼠标事件） */
+    /** 加载DEM（GCJ-02修正、裁剪后边界外透明、带金字塔） */
     _loadDem() {
-        this._layers.dem = L.tileLayer.wms(this._geoserverWms, {
+        this._layers.dem = new L.TileLayer.GCJ02CorrectedWMS(this._geoserverWms, {
             layers: 'baiyunshan:dem',
-            format: 'image/jpeg',
-            transparent: false,
-            version: '1.1.0',
+            format: 'image/png',
+            transparent: true,
+            version: '1.3.0',
+            crs: L.CRS.EPSG4326,
+            uppercase: true,
+            maxZoom: 20,
             opacity: 0.5,
-            interactive: false,
         });
-        console.log('[GeoLayers] DEM图层已创建（色带渲染）');
+        console.log('[GeoLayers] DEM图层已创建');
+    },
+
+    /** 加载NDVI 2021 */
+    _loadNdvi() {
+        this._layers.ndvi = new L.TileLayer.GCJ02CorrectedWMS(this._geoserverWms, {
+            layers: 'baiyunshan:ndvi_2021',
+            format: 'image/png', transparent: true,
+            version: '1.3.0', crs: L.CRS.EPSG4326,
+            uppercase: true, maxZoom: 20, opacity: 0.8,
+        });
+        console.log('[GeoLayers] NDVI 2021已创建');
+    },
+
+    /** 加载NDVI 2022 */
+    _loadNdvi2022() {
+        this._layers.ndvi2022 = new L.TileLayer.GCJ02CorrectedWMS(this._geoserverWms, {
+            layers: 'baiyunshan:ndvi_2022',
+            format: 'image/png', transparent: true,
+            version: '1.3.0', crs: L.CRS.EPSG4326,
+            uppercase: true, maxZoom: 20, opacity: 0.8,
+        });
+        console.log('[GeoLayers] NDVI 2022已创建');
+    },
+
+    /** 加载FVC 2021 */
+    _loadFvc() {
+        this._layers.fvc = new L.TileLayer.GCJ02CorrectedWMS(this._geoserverWms, {
+            layers: 'baiyunshan:fvc_2021',
+            format: 'image/png', transparent: true,
+            version: '1.3.0', crs: L.CRS.EPSG4326,
+            uppercase: true, maxZoom: 20, opacity: 0.8,
+        });
+        console.log('[GeoLayers] FVC 2021已创建');
+    },
+
+    /** 加载FVC 2022 */
+    _loadFvc2022() {
+        this._layers.fvc2022 = new L.TileLayer.GCJ02CorrectedWMS(this._geoserverWms, {
+            layers: 'baiyunshan:fvc_2022',
+            format: 'image/png', transparent: true,
+            version: '1.3.0', crs: L.CRS.EPSG4326,
+            uppercase: true, maxZoom: 20, opacity: 0.8,
+        });
+        console.log('[GeoLayers] FVC 2022已创建');
+    },
+
+    /** 绑定专题图层 + 巡护轨迹侧边栏控制 */
+    _bindLayerControls() {
+        var self = this;
+        function bind(k, cbSel, sliderSel) {
+            var cb = document.querySelector(cbSel);
+            if (cb) cb.addEventListener('change', function() {
+                var maps = Object.values(MapFacade._instances);
+                if (this.checked) maps.forEach(function(m) { if (self._layers[k] && !m.hasLayer(self._layers[k])) m.addLayer(self._layers[k]); });
+                else maps.forEach(function(m) { if (self._layers[k] && m.hasLayer(self._layers[k])) m.removeLayer(self._layers[k]); });
+            });
+            var sl = document.querySelector(sliderSel);
+            if (sl) sl.addEventListener('input', function() { if (self._layers[k]) self._layers[k].setOpacity(this.value/100); });
+        }
+        bind('dem', '#rasterLayerGroup input[data-layer="dem"]', '#rasterLayerGroup input.layer-opacity[data-layer="dem"]');
+        bind('ndvi', '#rasterLayerGroup input[data-layer="ndvi_2021"]', '#rasterLayerGroup input.layer-opacity[data-layer="ndvi_2021"]');
+        bind('ndvi2022', '#rasterLayerGroup input[data-layer="ndvi_2022"]', '#rasterLayerGroup input.layer-opacity[data-layer="ndvi_2022"]');
+        bind('fvc', '#rasterLayerGroup input[data-layer="fvc_2021"]', '#rasterLayerGroup input.layer-opacity[data-layer="fvc_2021"]');
+        bind('fvc2022', '#rasterLayerGroup input[data-layer="fvc_2022"]', '#rasterLayerGroup input.layer-opacity[data-layer="fvc_2022"]');
+        // 林场边界 + 林区界限
+        bind('boundary', '#businessLayerGroup input[data-layer="forestBoundary"]', '#businessLayerGroup input.layer-opacity[data-layer="forestBoundary"]');
+        bind('compartments', '#businessLayerGroup input[data-layer="subCompartments"]', '#businessLayerGroup input.layer-opacity[data-layer="subCompartments"]');
+
+        // 巡护轨迹 toggle
+        var trackCb = document.querySelector('#businessLayerGroup input[data-layer="patrolRoutes"]');
+        if (trackCb) trackCb.addEventListener('change', function() { self._togglePatrolTracks(this.checked); });
+    },
+
+    _togglePatrolTracks: function(visible) {
+        var maps = Object.values(MapFacade._instances);
+        maps.forEach(function(map) {
+            map.eachLayer(function(layer) {
+                if (layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
+                    var c = layer.options.color || '';
+                    if (c === '#fdd835' || c === '#448aff')
+                        layer.setStyle({ opacity: visible ? (layer._origOpacity || 0.85) : 0 });
+                }
+            });
+        });
     },
 
     /** 从API加载火情/疫情标记（护林员/无人机由巡护模块管理） */
@@ -285,12 +400,17 @@ const GeoServerLayers = {
             keys.forEach(id => {
                 const map = MapFacade._instances[id];
                 if (!map) return;
-                if (self._layers.boundary && !map.hasLayer(self._layers.boundary)) map.addLayer(self._layers.boundary);
-                // DEM图层（默认不显示，仅checkbox勾选时加载）
-                var demCb = document.querySelector('#businessLayerGroup input[type=\"checkbox\"][data-layer=\"dem\"]');
-                if (self._layers.dem && !map.hasLayer(self._layers.dem) && demCb && demCb.checked) {
-                    map.addLayer(self._layers.dem);
-                }
+                // 林场边界（仅checkbox勾选时加载）
+                var bndCb = document.querySelector('#businessLayerGroup input[data-layer=\"forestBoundary\"]');
+                if (self._layers.boundary && !map.hasLayer(self._layers.boundary) && (!bndCb || bndCb.checked)) map.addLayer(self._layers.boundary);
+                // DEM/NDVI 在 #rasterLayerGroup 中，默认不显示
+                ['dem','ndvi','ndvi2022','fvc','fvc2022'].forEach(function(k) {
+                    var dl = k==='ndvi2022'?'ndvi_2022':k==='ndvi'?'ndvi_2021':k==='fvc2022'?'fvc_2022':k==='fvc'?'fvc_2021':k;
+                    var cb = document.querySelector('#rasterLayerGroup input[data-layer=\"'+dl+'\"]');
+                    if (self._layers[k] && !map.hasLayer(self._layers[k]) && cb && cb.checked) {
+                        map.addLayer(self._layers[k]);
+                    }
+                });
                 if (self._layers.compartments && !map.hasLayer(self._layers.compartments)) {
                     // 检查图层管理面板中林班小班是否勾选
                     var compCb = document.querySelector('#businessLayerGroup input[type=\"checkbox\"][data-layer=\"subCompartments\"]');

@@ -117,12 +117,39 @@
                     <input type="range" min="0" max="100" value="100" data-layer="drones" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
+                    <label class="layer-label"><input type="checkbox" checked data-layer="patrolRoutes"/> 巡护轨迹</label>
+                    <input type="range" min="0" max="100" value="100" data-layer="patrolRoutes" class="layer-opacity" title="透明度"/>
+                </div>
+                <div class="layer-item">
                     <label class="layer-label"><input type="checkbox" checked data-layer="fires"/> 火情点</label>
                     <input type="range" min="0" max="100" value="100" data-layer="fires" class="layer-opacity" title="透明度"/>
                 </div>
                 <div class="layer-item">
                     <label class="layer-label"><input type="checkbox" checked data-layer="diseases"/> 虫害点</label>
                     <input type="range" min="0" max="100" value="100" data-layer="diseases" class="layer-opacity" title="透明度"/>
+                </div>
+            </div>
+            <div class="layer-group" id="rasterLayerGroup">
+                <div class="layer-group-title">专题图层</div>
+                <div class="layer-item">
+                    <label class="layer-label"><input type="checkbox" data-layer="dem"/> DEM 高程</label>
+                    <input type="range" min="0" max="100" value="50" data-layer="dem" class="layer-opacity" title="透明度"/>
+                </div>
+                <div class="layer-item">
+                    <label class="layer-label"><input type="checkbox" data-layer="ndvi_2021"/> NDVI 2021</label>
+                    <input type="range" min="0" max="100" value="80" data-layer="ndvi_2021" class="layer-opacity" title="透明度"/>
+                </div>
+                <div class="layer-item">
+                    <label class="layer-label"><input type="checkbox" data-layer="ndvi_2022"/> NDVI 2022</label>
+                    <input type="range" min="0" max="100" value="80" data-layer="ndvi_2022" class="layer-opacity" title="透明度"/>
+                </div>
+                <div class="layer-item">
+                    <label class="layer-label"><input type="checkbox" data-layer="fvc_2021"/> FVC 2021</label>
+                    <input type="range" min="0" max="100" value="80" data-layer="fvc_2021" class="layer-opacity" title="透明度"/>
+                </div>
+                <div class="layer-item">
+                    <label class="layer-label"><input type="checkbox" data-layer="fvc_2022"/> FVC 2022</label>
+                    <input type="range" min="0" max="100" value="80" data-layer="fvc_2022" class="layer-opacity" title="透明度"/>
                 </div>
             </div>
             <div class="layer-group">
