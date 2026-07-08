@@ -1560,6 +1560,7 @@ function initSpatialPage() {
                         <div class="result-item"><span class="result-label">平均NDVI</span><span class="result-value green" id="ndviAvgValue">0.72</span></div>
                         <div class="result-item"><span class="result-label">高植被面积</span><span class="result-value green" id="ndviHighArea">7,520 亩</span></div>
                         <div class="result-item"><span class="result-label">中植被面积</span><span class="result-value blue" id="ndviMidArea">3,280 亩</span></div>
+                        <div class="result-item"><span class="result-label">中高植被面积</span><span class="result-value green" id="ndviMidHighArea">10,800 亩</span></div>
                         <div class="result-item"><span class="result-label">低植被面积</span><span class="result-value orange" id="ndviLowArea">1,450 亩</span></div>
                         <div class="result-item"><span class="result-label">裸地面积</span><span class="result-value red" id="ndviBareArea">810 亩</span></div>
                         <div class="result-item"><span class="result-label">退化区域</span><span class="result-value red" id="ndviDegraded">4 处</span></div>
@@ -1610,6 +1611,7 @@ function initSpatialPage() {
                         <div class="result-item"><span class="result-label">平均FVC</span><span class="result-value green" id="fvcAvgValue">0.68</span></div>
                         <div class="result-item"><span class="result-label">高覆盖面积</span><span class="result-value green" id="fvcHighArea">6,820 亩</span></div>
                         <div class="result-item"><span class="result-label">中覆盖面积</span><span class="result-value blue" id="fvcMidArea">3,450 亩</span></div>
+                        <div class="result-item"><span class="result-label">中高覆盖面积</span><span class="result-value green" id="fvcMidHighArea">10,270 亩</span></div>
                         <div class="result-item"><span class="result-label">低覆盖面积</span><span class="result-value orange" id="fvcLowArea">1,230 亩</span></div>
                         <div class="result-item"><span class="result-label">裸地面积</span><span class="result-value red" id="fvcBareArea">560 亩</span></div>
                         <div class="result-item"><span class="result-label">退化区域</span><span class="result-value red" id="fvcDegraded">3 处</span></div>
@@ -2335,6 +2337,8 @@ function showFvcResult(data) {
     if (hiEl) hiEl.textContent = (data.highArea || 0).toLocaleString() + ' 亩';
     var midEl = document.getElementById('fvcMidArea');
     if (midEl) midEl.textContent = (data.midArea || 0).toLocaleString() + ' 亩';
+    var mhEl = document.getElementById('fvcMidHighArea');
+    if (mhEl) mhEl.textContent = ((data.highArea||0) + (data.midArea||0)).toLocaleString() + ' 亩';
     var loEl = document.getElementById('fvcLowArea');
     if (loEl) loEl.textContent = (data.lowArea || 0).toLocaleString() + ' 亩';
     var baEl = document.getElementById('fvcBareArea');
@@ -2833,18 +2837,6 @@ function initRiskCharts() {
 function showNdviOnDashMap() {
     if (typeof L === 'undefined') return;
 
-    // 判断当前激活的是 NDVI 还是 FVC 页签
-    var isFvcTab = document.getElementById('inner-fvc') && document.getElementById('inner-fvc').classList.contains('active');
-    var srcEl = isFvcTab ? document.getElementById('fvcDataSource') : document.getElementById('ndviDataSource');
-    var source = srcEl ? srcEl.value : (isFvcTab ? 'fvc_2' : 'NDVI2');
-    var pngMap = {
-        'NDVI2':  '/ndvi_2021_classified.png',
-        'NDVI_1': '/ndvi_2022_classified.png',
-        'fvc_2':  '/fvc_2021_classified.png',
-        'fvc_1':  '/fvc_2022_classified.png',
-    };
-    var png = pngMap[source] || '/ndvi_2021_classified.png';
-
     // 如果已显示则移除（toggle 关闭）
     if (window._dashNdviLayer) {
         var dashInst = MapFacade.getMap('dashMap');
@@ -2856,18 +2848,49 @@ function showNdviOnDashMap() {
         return;
     }
 
-    // 加载显示
+    // 获取数据源和阈值
+    var isFvcTab = document.getElementById('inner-fvc') && document.getElementById('inner-fvc').classList.contains('active');
+    var srcEl = isFvcTab ? document.getElementById('fvcDataSource') : document.getElementById('ndviDataSource');
+    var source = srcEl ? srcEl.value : (isFvcTab ? 'fvc_2' : 'NDVI2');
+    var highEl = isFvcTab ? document.getElementById('fvcHigh') : document.getElementById('ndviHigh');
+    var midEl  = isFvcTab ? document.getElementById('fvcMid')  : document.getElementById('ndviMid');
+    var lowEl  = isFvcTab ? document.getElementById('fvcLow')  : document.getElementById('ndviLow');
+    var thresholds = {
+        high: (highEl && parseFloat(highEl.value)) || (isFvcTab ? 0.75 : 0.70),
+        mid:  (midEl  && parseFloat(midEl.value))  || (isFvcTab ? 0.45 : 0.40),
+        low:  (lowEl  && parseFloat(lowEl.value))  || 0.15,
+    };
+
+    // 底图实例
     var dashInst = MapFacade.getMap('dashMap');
     var map = (dashInst && dashInst.getMap) ? dashInst.getMap() : dashInst;
     if (!map) return;
 
-    var bounds = [[28.4798, 119.8545], [28.5807, 119.9661]];
-    if (typeof CoordTransform !== 'undefined') {
-        var sw = CoordTransform.wgs84ToGcj02(119.8545, 28.4798);
-        var ne = CoordTransform.wgs84ToGcj02(119.9661, 28.5807);
-        if (sw && ne) bounds = [[sw[1], sw[0]], [ne[1], ne[0]]];
-    }
-    window._dashNdviLayer = L.imageOverlay(png, bounds, { opacity: 0.65 }).addTo(map);
+    // 调用 API 按阈值动态生成 PNG 叠加层
+    var token = (typeof ApiService !== 'undefined') ? ApiService._getToken() : (localStorage.getItem('fps_token') || '');
+    fetch('/api/classify-ndvi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({
+            source: source,
+            high_threshold: thresholds.high,
+            medium_threshold: thresholds.mid,
+            low_threshold: thresholds.low
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.image) { alert('渲染生成失败'); return; }
+
+        var bounds = [[28.4798, 119.8545], [28.5807, 119.9661]];
+        if (typeof CoordTransform !== 'undefined') {
+            var sw = CoordTransform.wgs84ToGcj02(119.8545, 28.4798);
+            var ne = CoordTransform.wgs84ToGcj02(119.9661, 28.5807);
+            if (sw && ne) bounds = [[sw[1], sw[0]], [ne[1], ne[0]]];
+        }
+        window._dashNdviLayer = L.imageOverlay('data:image/png;base64,' + data.image, bounds, { opacity: 0.65 }).addTo(map);
+    })
+    .catch(function(err) { alert('网络错误: ' + err.message); });
 }
 
 function runNdviAnalysis() {
@@ -2970,6 +2993,8 @@ function showNdviResult(data) {
     if (hiEl) hiEl.textContent = (data.highArea || 0).toLocaleString() + ' 亩';
     var midEl = document.getElementById('ndviMidArea');
     if (midEl) midEl.textContent = (data.midArea || 0).toLocaleString() + ' 亩';
+    var mhEl = document.getElementById('ndviMidHighArea');
+    if (mhEl) mhEl.textContent = ((data.highArea||0) + (data.midArea||0)).toLocaleString() + ' 亩';
     var loEl = document.getElementById('ndviLowArea');
     if (loEl) loEl.textContent = (data.lowArea || 0).toLocaleString() + ' 亩';
     var baEl = document.getElementById('ndviBareArea');

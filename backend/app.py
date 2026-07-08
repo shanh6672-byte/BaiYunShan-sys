@@ -2868,6 +2868,114 @@ def classify_ndvi():
 # 也注册 /api/spatial/ndvi/classify 路径（geoserver-layers.js 调用此路径）
 app.add_url_rule('/api/spatial/ndvi/classify', 'classify_ndvi_alias', classify_ndvi, methods=['POST'])
 
+# ========== XYZ 瓦片端点 ==========
+import math as _math
+
+# GCJ-02 坐标转换（高德/天地图底图 → WGS84 数据对齐）
+def _is_outside_china(lng, lat):
+    return lng < 72.004 or lng > 137.8347 or lat < 0.8293 or lat > 55.8271
+
+def _transform_lat(x, y):
+    return -100.0+2.0*x+3.0*y+0.2*y*y+0.1*x*y+0.2*_math.sqrt(abs(x)) + \
+           (20.0*_math.sin(6.0*x*_math.pi)+20.0*_math.sin(2.0*x*_math.pi))*2.0/3.0 + \
+           (20.0*_math.sin(y*_math.pi)+40.0*_math.sin(y/3.0*_math.pi))*2.0/3.0 + \
+           (160.0*_math.sin(y/12.0*_math.pi)+320*_math.sin(y*_math.pi/30.0))*2.0/3.0
+
+def _transform_lng(x, y):
+    return 300.0+x+2.0*y+0.1*x*x+0.1*x*y+0.1*_math.sqrt(abs(x)) + \
+           (20.0*_math.sin(6.0*x*_math.pi)+20.0*_math.sin(2.0*x*_math.pi))*2.0/3.0 + \
+           (20.0*_math.sin(x*_math.pi)+40.0*_math.sin(x/3.0*_math.pi))*2.0/3.0 + \
+           (150.0*_math.sin(x/12.0*_math.pi)+300.0*_math.sin(x/30.0*_math.pi))*2.0/3.0
+
+def _gcj02_to_wgs84(lng, lat):
+    if _is_outside_china(lng, lat):
+        return lng, lat
+    dlat = _transform_lat(lng-105.0, lat-35.0)
+    dlng = _transform_lng(lng-105.0, lat-35.0)
+    radlat = lat/180.0*_math.pi
+    magic = _math.sin(radlat)
+    magic = 1-0.00669342162296594323*magic*magic
+    sqrtmagic = _math.sqrt(magic)
+    dlat = (dlat*180.0)/((6378245.0*(1-0.00669342162296594323))/(magic*sqrtmagic)*_math.pi)
+    dlng = (dlng*180.0)/(6378245.0/sqrtmagic*_math.cos(radlat)*_math.pi)
+    return lng-dlng, lat-dlat
+
+_tile_cache = {}
+
+def _get_classified_rgba(source, high_thr, med_thr, low_thr):
+    cache_key = (source, high_thr, med_thr, low_thr)
+    if cache_key in _tile_cache:
+        return _tile_cache[cache_key]
+    tif_path = _TIFF_SOURCES.get(source)
+    if not tif_path or not os.path.exists(tif_path):
+        return None
+    with rasterio.open(tif_path) as src:
+        arr = src.read(1).astype(np.float32)
+        transform = src.transform
+        bounds = src.bounds
+    arr[arr < -1e30] = np.nan
+    classified = np.zeros(arr.shape, dtype=np.uint8)
+    classified[np.isnan(arr)] = 0
+    classified[arr >= high_thr] = 4
+    classified[(arr >= med_thr) & (arr < high_thr)] = 3
+    classified[(arr >= low_thr) & (arr < med_thr)] = 2
+    classified[(arr < low_thr) & (~np.isnan(arr))] = 1
+    color_map = {0:(0,0,0,0),1:(215,48,39,255),2:(253,174,97,255),3:(166,217,106,255),4:(26,150,65,255)}
+    h,w = classified.shape
+    rgba = np.zeros((h,w,4), dtype=np.uint8)
+    for val,color in color_map.items():
+        rgba[classified==val] = color
+    data = (rgba, transform, bounds)
+    if len(_tile_cache) > 20:
+        _tile_cache.pop(next(iter(_tile_cache)))
+    _tile_cache[cache_key] = data
+    return data
+
+def _tile_lonlat(z, x, y):
+    """Web Mercator 瓦片 → GCJ-02 经纬度（高德底图坐标系）→ WGS84"""
+    n = 2.0 ** z
+    w_gcj = x / n * 360.0 - 180.0
+    e_gcj = (x+1) / n * 360.0 - 180.0
+    s_gcj = _math.degrees(_math.atan(_math.sinh(_math.pi*(1-2*(y+1)/n))))
+    n_gcj = _math.degrees(_math.atan(_math.sinh(_math.pi*(1-2*y/n))))
+    # GCJ-02 → WGS84 以对齐 TIFF 数据
+    w, s = _gcj02_to_wgs84(w_gcj, s_gcj)
+    e, n_lat = _gcj02_to_wgs84(e_gcj, n_gcj)
+    return w, s, e, n_lat
+
+@app.route('/api/ndvi-tiles/<int:z>/<int:x>/<int:y>.png')
+def ndvi_tile(z, x, y):
+    source = request.args.get('source', 'NDVI2')
+    try:
+        high = float(request.args.get('high', 0.7))
+        mid  = float(request.args.get('medium', 0.4))
+        low  = float(request.args.get('low', 0.15))
+    except (ValueError, TypeError):
+        high, mid, low = 0.7, 0.4, 0.15
+    data = _get_classified_rgba(source, high, mid, low)
+    if data is None:
+        return flask.Response('', status=204)
+    rgba, transform, crs_bounds = data
+    west, south, east, north = _tile_lonlat(z, x, y)
+    if east < crs_bounds.left or west > crs_bounds.right or north < crs_bounds.bottom or south > crs_bounds.top:
+        return flask.Response('', status=204)
+    col_s = int((west - transform.c) / transform.a)
+    col_e = int((east - transform.c) / transform.a) + 1
+    row_s = int((north - transform.f) / transform.e)
+    row_e = int((south - transform.f) / transform.e) + 1
+    h, w = rgba.shape[:2]
+    col_s, col_e = max(0, col_s), min(w, col_e)
+    row_s, row_e = max(0, row_s), min(h, row_e)
+    if col_e <= col_s or row_e <= row_s:
+        return flask.Response('', status=204)
+    tile = rgba[row_s:row_e, col_s:col_e, :]
+    img = Image.fromarray(tile, 'RGBA').resize((256,256), Image.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, format='PNG', optimize=True)
+    resp = flask.make_response(buf.getvalue())
+    resp.headers['Content-Type'] = 'image/png'
+    return resp
+
 
 # ========== 启动 ==========
 
