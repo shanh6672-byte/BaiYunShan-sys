@@ -233,12 +233,19 @@ const GeoServerLayers = {
                 if (!cb) { setTimeout(doBind, 500); return; }  // DOM 还没渲染
                 cb.addEventListener('change', function() {
                     var checked = this.checked;
-                    (function apply(retry) {
-                        var maps = Object.values(MapFacade._instances);
-                        if (maps.length === 0 && retry < 20) { setTimeout(function() { apply(retry+1); }, 500); return; }
-                        if (checked) maps.forEach(function(m) { if (self._layers[k] && !m.hasLayer(self._layers[k])) m.addLayer(self._layers[k]); });
-                        else maps.forEach(function(m) { if (self._layers[k] && m.hasLayer(self._layers[k])) m.removeLayer(self._layers[k]); });
-                    })(0);
+                    // 直接获取所有 Leaflet 地图实例（不依赖 MapFacade._instances 的重试）
+                    var maps = Object.values(MapFacade._instances);
+                    if (maps.length === 0) {
+                        // 回退：从 DOM 中查找 Leaflet 地图实例
+                        document.querySelectorAll('.leaflet-container').forEach(function(el) {
+                            if (el._leaflet_map) maps.push(el._leaflet_map);
+                        });
+                    }
+                    if (checked) {
+                        maps.forEach(function(m) { if (self._layers[k] && !m.hasLayer(self._layers[k])) { m.addLayer(self._layers[k]); m.invalidateSize(); } });
+                    } else {
+                        maps.forEach(function(m) { if (self._layers[k] && m.hasLayer(self._layers[k])) m.removeLayer(self._layers[k]); });
+                    }
                 });
                 var sl = document.querySelector(sliderSel);
                 if (sl) sl.addEventListener('input', function() { if (self._layers[k]) self._layers[k].setOpacity(this.value/100); });
@@ -402,12 +409,16 @@ const GeoServerLayers = {
     /** 添加到所有地图 */
     _addToAllMaps() {
         const self = this;
-        (function poll() {
-            const keys = Object.keys(MapFacade._instances);
-            if (keys.length === 0) { setTimeout(poll, 500); return; }
-            keys.forEach(id => {
-                const map = MapFacade._instances[id];
-                if (!map) return;
+        function addToMaps() {
+            // 获取 Leaflet 地图实例（MapFacade + DOM 回退）
+            var maps = Object.values(MapFacade._instances);
+            if (maps.length === 0) {
+                document.querySelectorAll('.leaflet-container').forEach(function(el) {
+                    if (el._leaflet_map) maps.push(el._leaflet_map);
+                });
+            }
+            if (maps.length === 0) { setTimeout(addToMaps, 300); return; }
+            maps.forEach(function(map) {
                 // 林场边界（仅checkbox勾选时加载）
                 var bndCb = document.querySelector('#businessLayerGroup input[data-layer=\"forestBoundary\"]');
                 if (self._layers.boundary && !map.hasLayer(self._layers.boundary) && (!bndCb || bndCb.checked)) map.addLayer(self._layers.boundary);
@@ -420,7 +431,6 @@ const GeoServerLayers = {
                     }
                 });
                 if (self._layers.compartments && !map.hasLayer(self._layers.compartments)) {
-                    // 检查图层管理面板中林班小班是否勾选
                     var compCb = document.querySelector('#businessLayerGroup input[type=\"checkbox\"][data-layer=\"subCompartments\"]');
                     if (!compCb || compCb.checked) {
                         map.addLayer(self._layers.compartments);
@@ -428,8 +438,9 @@ const GeoServerLayers = {
                 }
                 self._addMarkersToMap(map);
             });
-            console.log('[GeoLayers] 边界+标记已添加到 ' + keys.length + ' 个地图');
-        })();
+            console.log('[GeoLayers] 边界+标记已添加到 ' + maps.length + ' 个地图');
+        }
+        addToMaps();
     },
 
     async refreshMarkers() {
