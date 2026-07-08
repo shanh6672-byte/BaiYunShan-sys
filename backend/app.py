@@ -6,8 +6,13 @@ import math
 import threading
 import queue
 import os
+import base64
 from io import BytesIO
 from functools import wraps
+
+import numpy as np
+import rasterio
+from PIL import Image
 
 from flask import Flask, request, jsonify, Response, stream_with_context, send_from_directory
 from flask_cors import CORS
@@ -55,7 +60,7 @@ except ImportError:
 
 # 前端原型目录（用于静态文件服务 + 灾害图片存储）
 PROTOTYPE_DIR = os.path.abspath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..'
+    os.path.dirname(os.path.abspath(__file__)), '..', '0'
 ))
 
 # SSE 消息队列（线程安全）
@@ -2793,22 +2798,75 @@ def serve_static_proto(filename):
         return flask.send_file(filepath)
     return flask.send_file(os.path.join(PROTOTYPE_DIR, 'index.html'))
 
-# ========== NDVI 阈值分类渲染（代理到 8088） ==========
+# ========== NDVI 阈值分类渲染 ==========
+
+# 数据源 → TIFF 文件映射
+_TIFF_SOURCES = {
+    'NDVI2':  r'C:\Users\9\Desktop\FVC-NDVI-1\ndvi\NDVI.tif',           # NDVI 2021
+    'NDVI_1': r'C:\Users\9\Desktop\FVC-NDVI-2\FVC-NDVI-2\NDVI-21.tif',  # NDVI 2022
+    'fvc_2':  r'C:\Users\9\Desktop\FVC-NDVI-1\ndvi\fvc-11.tif',         # FVC  2021
+    'fvc_1':  r'C:\Users\9\Desktop\FVC-NDVI-2\FVC-NDVI-2\fvc2.tif',     # FVC  2022
+}
+
 @app.route('/api/classify-ndvi', methods=['POST'])
 @jwt_required()
 def classify_ndvi():
-    """代理到 webgis 服务器(8088)的 classify-ndvi，它已有完整的 rasterio+numpy 处理逻辑"""
-    import requests as req
+    """读取白云山 NDVI/FVC TIFF，按用户阈值重分类，返回 PNG 覆盖层"""
     try:
-        resp = req.post(
-            'http://localhost:8088/api/classify-ndvi',
-            json=request.get_json(),
-            headers={'Content-Type': 'application/json'},
-            timeout=90
-        )
-        return resp.content, resp.status_code, {'Content-Type': resp.headers.get('Content-Type', 'application/json')}
+        body = request.get_json() or {}
+        source = body.get('source', 'NDVI2')
+        high_thr = float(body.get('high_threshold', 0.7))
+        med_thr = float(body.get('medium_threshold', 0.4))
+        low_thr = float(body.get('low_threshold', 0.15))
+
+        if not (high_thr > med_thr > low_thr):
+            return jsonify({'error': '阈值必须满足: 高 > 中 > 低'}), 400
+
+        tif_path = _TIFF_SOURCES.get(source)
+        if not tif_path or not os.path.exists(tif_path):
+            return jsonify({'error': f'找不到数据文件 (source={source}): {tif_path}'}), 404
+
+        with rasterio.open(tif_path) as src:
+            arr = src.read(1).astype(np.float32)
+            bounds = src.bounds
+
+        arr[arr < -1e30] = np.nan
+
+        classified = np.zeros(arr.shape, dtype=np.uint8)
+        classified[np.isnan(arr)] = 0
+        classified[arr >= high_thr] = 4
+        classified[(arr >= med_thr) & (arr < high_thr)] = 3
+        classified[(arr >= low_thr) & (arr < med_thr)] = 2
+        classified[(arr < low_thr) & (~np.isnan(arr))] = 1
+
+        color_map = {
+            0: (0, 0, 0, 0),
+            1: (215, 48, 39, 255),
+            2: (253, 174, 97, 255),
+            3: (166, 217, 106, 255),
+            4: (26, 150, 65, 255),
+        }
+        h, w = classified.shape
+        rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        for val, color in color_map.items():
+            rgba[classified == val] = color
+
+        img = Image.fromarray(rgba, 'RGBA')
+        buf = BytesIO()
+        img.save(buf, format='PNG', optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+        return jsonify({
+            'image': b64,
+            'bounds': {'west': bounds.left, 'south': bounds.bottom, 'east': bounds.right, 'north': bounds.top},
+            'width': w, 'height': h,
+        })
+
     except Exception as e:
-        return jsonify({'error': f'8088 代理失败: {str(e)}'}), 502
+        return jsonify({'error': f'服务器错误: {e}'}), 500
+
+# 也注册 /api/spatial/ndvi/classify 路径（geoserver-layers.js 调用此路径）
+app.add_url_rule('/api/spatial/ndvi/classify', 'classify_ndvi_alias', classify_ndvi, methods=['POST'])
 
 
 # ========== 启动 ==========
