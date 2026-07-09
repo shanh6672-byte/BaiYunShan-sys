@@ -60,7 +60,7 @@ except ImportError:
 
 # 前端原型目录（用于静态文件服务 + 灾害图片存储）
 PROTOTYPE_DIR = os.path.abspath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', '0'
+    os.path.dirname(os.path.abspath(__file__)), '..', 'frontend'
 ))
 
 # SSE 消息队列（线程安全）
@@ -2113,12 +2113,20 @@ def _get_patrol_route_for_area(area_name):
     """根据林区名称获取对应的巡护路线"""
     if not PATROL_ROUTES:
         return None
+    route = None
     if area_name in PATROL_ROUTES:
-        return PATROL_ROUTES[area_name]
-    for key in PATROL_ROUTES:
-        if key in area_name or area_name in key:
-            return PATROL_ROUTES[key]
-    return None
+        route = PATROL_ROUTES[area_name]
+    else:
+        for key in PATROL_ROUTES:
+            if key in area_name or area_name in key:
+                route = PATROL_ROUTES[key]
+                break
+    if route is None:
+        return None
+    # 新格式 {"main": [...], "loop": [...]} → 返回 main 路线
+    if isinstance(route, dict):
+        return route.get('main', list(route.values())[0] if route else [])
+    return route
 
 
 def _get_boundary_for_ranger(name, area):
@@ -2801,11 +2809,12 @@ def serve_static_proto(filename):
 # ========== NDVI 阈值分类渲染 ==========
 
 # 数据源 → TIFF 文件映射
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 _TIFF_SOURCES = {
-    'NDVI2':  r'C:\Users\9\Desktop\FVC-NDVI-1\ndvi\NDVI.tif',           # NDVI 2021
-    'NDVI_1': r'C:\Users\9\Desktop\FVC-NDVI-2\FVC-NDVI-2\NDVI-21.tif',  # NDVI 2022
-    'fvc_2':  r'C:\Users\9\Desktop\FVC-NDVI-1\ndvi\fvc-11.tif',         # FVC  2021
-    'fvc_1':  r'C:\Users\9\Desktop\FVC-NDVI-2\FVC-NDVI-2\fvc2.tif',     # FVC  2022
+    'NDVI2':  os.path.join(_DATA_DIR, 'NDVI_2021.tif'),   # NDVI 2021
+    'NDVI_1': os.path.join(_DATA_DIR, 'NDVI_2022.tif'),   # NDVI 2022
+    'fvc_2':  os.path.join(_DATA_DIR, 'FVC_2021.tif'),    # FVC  2021
+    'fvc_1':  os.path.join(_DATA_DIR, 'FVC_2022.tif'),    # FVC  2022
 }
 
 @app.route('/api/classify-ndvi', methods=['POST'])
